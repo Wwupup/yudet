@@ -1,0 +1,8 @@
+/demo.ipynb
+/data/*
+/workspace/*
+/**/__pycache__
+/**/.vscode
+**/build
+tools/widerface_eval/*.so
+tools/widerface_eval/box_overlaps.c
