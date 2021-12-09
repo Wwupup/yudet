@@ -100,11 +100,12 @@ def main():
         # multi_scale training
         train_dataloader.reset()
 
-        logger.info('Epoch time: {:.2f} minutes; Time left: {:.2f} hours'.format(epoch_time/60, (epoch_time)*(cfg['train']['max_epochs']-epoch-1)/3600))
-        if (epoch % cfg['train']['save_interval'] == 0 and epoch > 0) :
-            save_path = os.path.join(cfg['train']['save_dir'], f"{cfg['train']['tag']}_epoch_{epoch}.pth")
+        logger.info('Epoch time: {:.2f} minutes; Time left: {:.2f} hours'.format(epoch_time/60, \
+                    (epoch_time)*(cfg['train']['max_epochs']-epoch-1)/3600))
+        if ((epoch + 1) % cfg['train']['save_interval'] == 0) :
+            save_path = os.path.join(cfg['train']['save_dir'], \
+                                    f"{cfg['train']['tag']}_epoch_{epoch}.pth")
             torch.save(net.state_dict(), save_path)
-            logger.info('Epoch time: {:.2f} minutes; Time left: {:.2f} hours'.format(epoch_time / 60, (epoch_time)*(cfg['train']['max_epochs']-epoch-1)/3600))
             logger.info(f'Save state_dict to: {save_path}')
 
     torch.save(net.state_dict(), os.path.join(cfg['train']['save_dir'], f"{cfg['train']['tag']}_final.pth"))
