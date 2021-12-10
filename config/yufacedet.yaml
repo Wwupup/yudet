@@ -56,6 +56,7 @@ test:
   nms_threshold: 0.3
   keep_top_k: 750
   top_k: 5000  
+  ap_threshold: 0.5
   logger:
     logfile: True
     sysout: True

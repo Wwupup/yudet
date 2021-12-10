@@ -1,6 +1,7 @@
 #-*- coding:utf-8 -*-
 import os
 from typing import List
+from numpy.lib.function_base import append
 import torch
 import numpy as np
 
@@ -458,19 +459,19 @@ class DaliWiderfaceDataset(object):
 class WIDERFace(data.Dataset):
     '''Dataset class for WIDER Face dataset'''
 
-    def __init__(self, widerface_root, split='val', device=None):
-        self.widerface_root = widerface_root
-        self._split = split
-        self.device = device
+    def __init__(self, **kargs):
+        self.root = kargs.get('root', None)
+        self.split = kargs.get('split', 'val')
+        assert self.root == None
 
         self.widerface_img_paths = {
-            'val':  os.path.join(self.widerface_root, 'WIDER_val', 'images'),
-            'test': os.path.join(self.widerface_root, 'WIDER_test', 'images')
+            'val':  os.path.join(self.root, 'WIDER_val', 'images'),
+            'test': os.path.join(self.root, 'WIDER_test', 'images')
         }
 
         self.widerface_split_fpaths = {
-            'val':  os.path.join(self.widerface_root, 'wider_face_split', 'wider_face_val.mat'),
-            'test': os.path.join(self.widerface_root, 'wider_face_split', 'wider_face_test.mat')
+            'val':  os.path.join(self.root, 'wider_face_split', 'wider_face_val.mat'),
+            'test': os.path.join(self.root, 'wider_face_split', 'wider_face_test.mat')
         }
 
         self.img_list, self.num_img = self.load_list()
@@ -479,8 +480,8 @@ class WIDERFace(data.Dataset):
         n_imgs = 0
         flist = []
 
-        split_fpath = self.widerface_split_fpaths[self._split]
-        img_path = self.widerface_img_paths[self._split]
+        split_fpath = self.widerface_split_fpaths[self.split]
+        img_path = self.widerface_img_paths[self.split]
 
         anno_data = scipy.io.loadmat(split_fpath)
         event_list = anno_data.get('event_list')
@@ -497,15 +498,12 @@ class WIDERFace(data.Dataset):
         return flist, n_imgs
 
     def __getitem__(self, index):
-        img = cv2.imread(self.img_list[index], cv2.IMREAD_COLOR).astype(np.float32)
+        img = cv2.imread(self.img_list[index], cv2.IMREAD_COLOR)
         event, name = self.img_list[index].split('/')[-2:]
-
-        if self.device is not None:
-            img_tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
-            img_tensor = img_tensor.to(self.device)
-            return img_tensor, event, name
-
-        return img, event, name
+        mata = {}
+        mata['event'] = event
+        mata['name'] = name
+        return img, mata
 
     def __len__(self):
         return self.num_img
@@ -516,20 +514,51 @@ class WIDERFace(data.Dataset):
 
     @property
     def split(self):
-        return self._split
+        return self.split
 
 
-class CCPD_coco(object):
-    def __init__(self, root, split) -> None:
+class CCPDtestloader(object):
+    def __init__(self, **kargs) -> None:
         super().__init__()
-        annos_file = os.path.join(root, "splits_coco", f"{split}.json")
+        self.root = kargs.get('root', None)
+        self.split = kargs.get('split', None)
+        assert self.root == None or self.root == None
+        annos_file = os.path.join(self.root, "splits_coco", f"{self.split}.json")
         with open(annos_file, "r") as f:
             annos = json.load(f)
-        self.images = [os.path.join(root, img["file_name"]) for img in annos["images"]]
+        self.images = []
+        self.matas = []
+        for img in annos['images']:
+            self.images.append(os.path.join(self.root, img["file_name"]))
+            self.matas.append({'id': img['id']})
 
     def __getitem__(self, index):
-        img = cv2.imread(self.images[index]).astype(np.float32)
-        return img
+        img = cv2.imread(self.images[index])
+        mata = self.matas[index]
+        return img, mata
+    
+    def __len__(self):
+        return len(self.images)
+
+class HanCotestloader(object):
+    def __init__(self, **kargs) -> None:
+        super().__init__()
+        self.root = kargs.get('root', None)
+        self.split = kargs.get('split', None)
+        assert self.root == None or self.root == None
+        annos_file = os.path.join(self.root, "detection_merge", f"{self.split}.json")
+        with open(annos_file, "r") as f:
+            annos = json.load(f)
+        self.images = []
+        self.matas = []
+        for img in annos['images']:
+            self.images.append(os.path.join(self.root, img["file_name"]))
+            self.matas.append({'id': img['id']})
+
+    def __getitem__(self, index):
+        img = cv2.imread(self.images[index])
+        mata = self.matas[index]
+        return img, mata
     
     def __len__(self):
         return len(self.images)

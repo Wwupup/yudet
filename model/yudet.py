@@ -78,6 +78,7 @@ class YuDetectNet(nn.Module):
         h, w, _ = img.shape    
         img = torch.from_numpy(img).cuda()
         img = img.permute(2, 0, 1).unsqueeze(0)
+        img = img.float()
         loc, conf, iou = self(img)
         conf = torch.softmax(conf.squeeze(0), dim=-1)
 

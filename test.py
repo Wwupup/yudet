@@ -12,8 +12,7 @@ import numpy as np
 
 from tools import Logger
 from model import YuDetectNet
-from tools import widerface_evaluation
-from tools import WIDERFace
+from tools import get_testloader, evaluation
 
 parser = argparse.ArgumentParser(description='Face and Landmark Detection')
 parser.add_argument('--config', '-c', type=str, help='config to test')
@@ -51,41 +50,34 @@ def main():
     net.eval()
     net.cuda()
     cudnn.benchmark = True
-    widerface = WIDERFace(cfg['test']['dataset']['root'], cfg['test']['dataset']['split'])
+    testloader = get_testloader(
+                mode=cfg['test']['dataset']['mode'],
+                split= cfg['test']['dataset']['split'],
+                root=cfg['test']['dataset']['root']
+    )
     scales = [0.25, 0.50, 0.75, 1.25, 1.50, 1.75, 2.0] if cfg['test']['multi_scale'] else [1.]
     logger.info(f'Performing testing with scales: {str(scales)}, conf_threshold: {cfg["test"]["confidence_threshold"]}')
-    for idx in tqdm(range(len(widerface))):
+    results = []
+    for idx in tqdm(range(len(testloader))):
     # for idx in range(len(widerface)):
-        img, event, name = widerface[idx] # img_subpath = '0--Parade/XXX.jpg'
+        img, mata = testloader[idx] # img_subpath = '0--Parade/XXX.jpg'
         available_scales = get_available_scales(img.shape[0], img.shape[1], scales)
         dets = torch.empty((0, 5)).cuda()
         for available_scale in available_scales:
             det = net.inference(img, available_scale)
-            dets = torch.cat([dets, det], dim=0)
-        save_res(dets.cpu(), event, name, save_path=os.path.join(cfg['test']['save_dir'], event))
-        # draw(img, dets.cpu().numpy(), idx)
+            dets = torch.cat([dets, det[:, [0,1,2,3,-1]]], dim=0)
+        results.append({'pred': dets.cpu().numpy(), 'mata': mata})
 
     logger.info('Evaluating:')
     sys.stdout = logger
-    widerface_evaluation(cfg['test']['save_dir'], os.path.join(cfg['test']['dataset']['root'], './ground_truth'))
-
-def save_res(dets, event, name, save_path):
-    txt_name = name[:-4]+'.txt'
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-
-    with open(os.path.join(save_path, txt_name), 'w') as f:
-        f.write('{}\n'.format('/'.join([event, name])))
-        f.write('{}\n'.format(dets.shape[0]))
-        for k in range(dets.shape[0]):
-            xmin = dets[k, 0]
-            ymin = dets[k, 1]
-            xmax = dets[k, 2]
-            ymax = dets[k, 3]
-            score = dets[k, 4]
-            w = xmax - xmin + 1
-            h = ymax - ymin + 1
-            f.write(f'{torch.floor(xmin):.1f} {torch.floor(ymin):.1f} {torch.ceil(w):.1f} {torch.ceil(h):.1f} {score:.3f}\n')
+    evaluation(
+                mode=cfg['test']['dataset']['mode'],
+                results=results,
+                results_save_dir=cfg['test']['save_dir'],
+                gt_root=os.path.join(cfg['test']['dataset']['root']),
+                iou_tresh=cfg['test']['ap_threshold'],
+                split= cfg['test']['dataset']['split']
+    )
 
 def draw(img, pred, idx = 0):
     scores = pred[:, -1]
