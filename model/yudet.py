@@ -3,7 +3,7 @@ import torch.nn as nn
 import cv2
 from .nets.layers import PriorBox
 from .nets.yunet import Yunet
-from .nets.yuhead import Yuhead
+from .nets.yuhead import Yuhead, Yuhead_PAN, Yuhead_double
 from .losses.multiboxloss import MultiBoxLoss
 from .src.utils import decode
 
@@ -15,10 +15,24 @@ class YuDetectNet(nn.Module):
         self.num_landmarks = cfg['model']['head']['num_landmarks']
         self.out_factor = (4 + self.num_landmarks * 2 + self.num_classes + 1)
         self.num_ratio = len(cfg['model']['anchor']['ratio'])
-        self.head = Yuhead(
+
+        head_name = cfg['model']['head'].get('type', None)
+        if head_name is not None:
+            if head_name.lower() == 'yuhead':
+                head_conv = Yuhead
+            elif head_name.lower() == 'yuhead_pan':
+                head_conv = Yuhead_PAN
+            elif head_name.lower() == 'yuhead_double':
+                head_conv = Yuhead_double
+            else:
+                raise ImportError(f"No head name {head_name}")
+        else:
+            head_conv = Yuhead
+        self.head = head_conv(
             in_channels=cfg['model']['head']['in_channels'],
             out_channels=[len(x) * self.out_factor * self.num_ratio for x in cfg['model']['anchor']['min_sizes']]
         )
+
         self.anchor_generator = PriorBox(
             min_sizes=cfg['model']['anchor']['min_sizes'],
             steps=cfg['model']['anchor']['steps'],
