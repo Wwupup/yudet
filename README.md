@@ -21,3 +21,6 @@ conda install tensorboard
 
 yaml
 pip install pyyaml
+
+widerface_eval
+python setup.py build_ext --inplace
