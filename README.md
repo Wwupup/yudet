@@ -24,3 +24,11 @@ pip install pyyaml
 
 widerface_eval
 python setup.py build_ext --inplace
+
+
+
+//
++ log
+++ 1. 2gpu2 imagenet\
+++ 2. 2gpu_0 doublehead\
+++ 3. 2gpu_1 pan
