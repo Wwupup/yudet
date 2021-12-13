@@ -72,7 +72,8 @@ def detect_video(net, video_path, cfg):
     while(True):
         ret, frame = cap.read()
         if ret:
-            det = net.inference(frame, scale=1., without_landmarks=False).cpu().numpy()
+            det = net.inference(frame, scale=1., without_landmarks=False)
+            det = det.cpu().numpy()            
             scores = det[:, -1]
             det = det[:, :-1].astype(np.int32)
             for det, score in zip(det, scores):
