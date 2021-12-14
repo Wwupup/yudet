@@ -1,7 +1,6 @@
 #-*- coding:utf-8 -*-
 import os
 from typing import List
-from numpy.lib.function_base import append
 import torch
 import numpy as np
 
@@ -562,3 +561,251 @@ class HanCotestloader(object):
     
     def __len__(self):
         return len(self.images)
+
+
+
+
+
+class widerface_mosaic(data.Dataset):
+    def __init__(self, 
+                root,
+                annotations_file,
+                use_mosaic=False,    
+                seed=347,
+                out_size=[320, 640]
+        ) -> None:
+        super().__init__()
+        self.img_matas = self.read_coco(root, annotations_file)
+        self.use_mosaic = use_mosaic
+        if isinstance(out_size, List):
+            assert len(out_size) == 2
+        self.size = 320
+        self.out_size = out_size
+        self.n = len(self.img_matas)
+        self.num_landmarks = 5
+        np.random.seed(seed)
+
+    def __len__(self):
+        return self.n
+    
+    def __getitem__(self, index):
+        if self.use_mosaic:
+            img, target = self.load_mosaic_face(size=self.size, index=index)
+        else:
+            img, target = self.load_crop_face(size=self.size, index=index)
+        return img, target
+    
+    def load_mosaic_face(self, size, index, isflip=True):
+        indices = [index] + [np.random.randint(0, self.n) for _ in range(3)]# 3 additional image indices
+        yc, xc = np.random.uniform(0.25 * size, 0.75 * size, 2) # mosaic center x, y
+        yc = int(yc)
+        xc = int(xc)
+
+        boxes_all = np.empty((0, 2 * self.num_landmarks + 4))
+        labels_all = np.empty((0,))
+        for i in range(4):
+            img_mata = self.img_matas[indices[i]]
+            image = cv2.imread(img_mata['image_path'])
+            boxes = img_mata['annotations'].copy()
+            labels = img_mata['labels'].copy()
+
+            # flip
+            h, w, c = image.shape
+            if isflip and np.random.uniform(0., 1.) > 0.5:
+                image = cv2.flip(image, 1)
+                boxes[:, 0::2] = w - boxes[:, 0::2]
+
+            if i == 0: # top left
+                img4 = np.full((size, size, c), 0, dtype=np.uint8)  # base image with 4 tiles
+
+                r = max(xc / w, yc / h)
+                if r != 1.:
+                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
+                    boxes *= r
+                h, w, c = image.shape
+                
+                x1a, y1a, x2a, y2a = 0, 0, xc, yc  # xmin, ymin, xmax, ymax (large image)
+                x1b, y1b, x2b, y2b = w - xc, h - yc, w, h  # xmin, ymin, xmax, ymax (small image)
+
+            elif i == 1:  # top right
+                r = (size - xc) / w
+                if r != 1.:
+                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
+                    boxes *= r
+                h, w, c = image.shape
+                
+                h_right = min(int(0.75 * size), h)
+                x1a, y1a, x2a, y2a = xc, 0, min(xc + w, size), h_right
+                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), w, h
+
+            elif i == 2:  # bottom left
+                r = max(xc / w, (size - yc) / h)
+                if r != 1.:
+                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
+                    boxes *= r
+                h, w, c = image.shape
+                
+                x1a, y1a, x2a, y2a = 0, yc, xc, size
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, y2a - y1a
+                if y2b > h:
+                    gap = y2b - h
+                    y1b -= gap                   
+
+            elif i == 3:  # bottom right
+                r = max((size - xc) / w, (size - h_right) / h)
+
+                if r != 1.:
+                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
+                    boxes *= r
+                h, w, c = image.shape
+                
+                x1a, y1a, x2a, y2a = xc, h_right, min(xc + w, size), min(size, h_right + h)
+                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), y2a - y1a
+                if y2b > h:
+                    gap = y2b - h
+                    y1b -= gap
+                    
+            img4[y1a:y2a, x1a:x2a] = image[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+            boxes[:, 0::2] += x1a - x1b
+            boxes[:, 1::2] += y1a - y1b
+            boxes_all = np.concatenate([boxes_all, boxes], axis=0)
+            labels_all = np.concatenate([labels_all, labels], axis=0)
+        center = (boxes_all[:, 0:2] + boxes_all[:, 2:4]) / 2
+        mask = np.logical_and((center > 0), center < size).all(axis=1)
+        boxes_all = boxes_all[mask]
+        boxes_all.clip(0, size)
+        labels_all = labels_all[mask]
+        boxes_all[:, :] /= size
+        target = np.concatenate([boxes_all, labels[:, None]], axis=-1)
+        return img4, target
+
+    def load_crop_face(self, index, size, isflip=True):
+        img_mata = self.img_matas[index]
+        image = cv2.imread(img_mata['image_path'])
+        boxes = img_mata['annotations'].copy()
+        labels = img_mata['labels'].copy()
+        height, width, _ = image.shape
+
+        # flip
+        if isflip and np.random.uniform(0., 1.) > 0.5:
+            image = cv2.flip(image, 1)
+            boxes[:, 0::2] = width - boxes[:, 0::2]
+
+        # crop
+        attemp_num = 1024
+        scale = [0.3, 1.]
+        crop_size = np.random.uniform(*scale) * min(height, width)
+        w_anchor, h_anchor = width - crop_size, height - crop_size
+
+        for _ in range(attemp_num):
+            xmin = w_anchor * np.random.uniform(0., 1.)
+            ymin = h_anchor * np.random.uniform(0., 1.)
+            xmax = xmin + crop_size
+            ymax = ymin + crop_size
+            roi = np.array([xmin, ymin, xmax, ymax]).astype(np.int32)
+
+            centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2
+            mask_a = np.logical_and(roi[:2] < centers, centers < roi[2:]).all(axis=1)
+            boxes_t = boxes[mask_a].copy()
+            labels_t = labels[mask_a].copy()        
+
+            if boxes_t.shape[0] == 0:
+                continue
+            #the cropped image
+            image_t = image[roi[1]:roi[3], roi[0]:roi[2]]
+            #to avoid the TL corner being out of the roi boundary
+            boxes_t[:, 0:2] = np.maximum(boxes_t[:, :2], roi[:2])
+            #to avoid the BR corner being out of the roi boundary
+            boxes_t[:, 2:4] = np.minimum(boxes_t[:, 2:4], roi[2:4])
+            #shift all points (x,y) according to the TL of the roi
+            boxes_t[:, 0::2] -= roi[0]
+            boxes_t[:, 1::2] -= roi[1]
+
+            image = image_t
+            boxes = boxes_t
+            labels = labels_t
+            attemp_success = True
+            break
+        
+        if not attemp_success:
+            long_side = max(width, height)
+            image_t = np.empty((long_side, long_side, 3), dtype=image.dtype)
+            image_t[0:0 + height, 0:0 + width] = image
+            image = image_t
+        
+        # normalize
+        height, width, _ = image.shape
+        boxes[:, 0::2] /= width
+        boxes[:, 1::2] /= height
+        assert width == height
+
+        # resize
+        interp_methods = [cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_NEAREST, cv2.INTER_LANCZOS4]
+        interp_method = interp_methods[np.random.randint(0, len(interp_methods))]
+        image = cv2.resize(image, (size, size), interpolation=interp_method)
+
+        image = image.astype(np.float32)
+        target = np.concatenate([boxes, labels[:, None]], axis=-1, dtype=np.float32)
+
+        return image, target
+
+    def collate_fn(self, batch):
+        targets = []
+        images = []
+        for sample in batch:
+            image, target = sample
+            images.append(torch.from_numpy(image).transpose(2, 0, 1))
+            targets.append(torch.from_numpy(target))
+        
+        return (torch.stack(images, 0).contiguous(), torch.stack(targets, 0))
+
+    def read_coco(self, root, annotations_file):
+        assert os.path.exists(annotations_file)
+        assert os.path.exists(root)
+        with open(annotations_file, 'r') as f:
+            targets = json.load(f)
+        img_matas = []
+        imgs_dict = targets['images']
+        annos_dict = targets['annotations']
+        anno_id = 0
+        anno_num = len(annos_dict)
+        for per_img in imgs_dict:
+            img_id = per_img['id']
+            img_path = os.path.join(root, per_img['file_name'])
+            labels = []
+            annos = np.empty((0, 14), dtype=np.float32)
+            for i in range(anno_id, anno_num):
+                if img_id == annos_dict[i]['img_id']:
+                    bbox = annos_dict[i]['bbox']
+                    bbox[2] += bbox[0]
+                    bbox[3] += bbox[1]
+                    landmarks = annos_dict[i]['segmatation'][0]
+                    np.concatenate([annos, np.array(bbox + landmarks, dtype=np.float32)], axis=0)
+                    labels.append(1)
+                else:
+                    anno_id = i
+                    break
+            labels = np.array(labels, dtype=np.int32)
+            img_matas.append({'image_path': img_path, "annotations": annos, "labels": labels})
+        return img_matas
+            
+if __name__ == '__main__':
+    dataset = widerface_mosaic(
+        root='/home/ww/projects/yudet/data/widerface/WIDER_train/images',
+        annotations_file='/home/ww/projects/yudet/data/widerface/trainset.json',
+        use_mosaic=True
+    )
+    loader = torch.utils.data.DataLoader(
+        dataset=dataset,
+        batch_size=16,
+        num_workers=4,
+        pin_memory=True,
+        collate_fn=dataset.collate_fn
+    )
+
+    for idx, one_batch_data in enumerate(loader):
+        break
