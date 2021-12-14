@@ -578,7 +578,7 @@ class widerface_mosaic(data.Dataset):
         self.use_mosaic = use_mosaic
         if isinstance(out_size, List):
             assert len(out_size) == 2
-        self.size = 320
+        self.size = out_size[1]
         self.out_size = out_size
         self.num_landmarks = 5
         np.random.seed(seed)
@@ -741,7 +741,7 @@ class widerface_mosaic(data.Dataset):
         height, width, _ = image.shape
         boxes[:, 0::2] /= width
         boxes[:, 1::2] /= height
-        assert width == height
+        # assert width == height
 
         # resize
         interp_methods = [cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_NEAREST, cv2.INTER_LANCZOS4]
@@ -792,12 +792,27 @@ class widerface_mosaic(data.Dataset):
             labels = np.array(labels, dtype=np.int32)
             img_matas.append({'image_path': img_path, "annotations": annos, "labels": labels})
         return img_matas
-            
+
+class Widerface_pytorch_loader(object):
+    def __init__(self, 
+        root, 
+        annotations_file, 
+        num_workers, 
+        pin_memory, 
+        shuffle, 
+        collate_fn,
+        out_sizes) -> None:
+        super().__init__()
+        assert isinstance(out_sizes, List) and len(out_sizes) == 2
+        self.size = out_sizes[1]
+    def reset(self):
+        self.size = np.random.randint()
+
 if __name__ == '__main__':
     dataset = widerface_mosaic(
         root='/home/ww/projects/yudet/data/widerface/WIDER_train/images',
         annotations_file='/home/ww/projects/yudet/data/widerface/trainset.json',
-        use_mosaic=True
+        use_mosaic=False
     )
     loader = torch.utils.data.DataLoader(
         dataset=dataset,
