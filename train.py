@@ -49,8 +49,8 @@ def arg_initial(args):
     cfg['train']['log_dir'] = log_dir
 
     if args.resume != 0:
-        start_epoch = args.resume - args.resume % cfg['train']['save_interval'] + 1
-        resume_weights = os.path.join(workfolder, 'weights', f"{cfg['train']['tag']}_epoch_{start_epoch - 1}.pth")
+        start_epoch = args.resume - args.resume % cfg['train']['save_interval']
+        resume_weights = os.path.join(workfolder, 'weights', f"{cfg['train']['tag']}_epoch_{start_epoch}.pth")
         cfg['train']['resume_weights'] = resume_weights
         cfg['train']['start_epoch'] = start_epoch
     with open(os.path.join(workfolder, os.path.basename(args.config)), mode='w', encoding='utf-8') as f:
@@ -104,7 +104,7 @@ def main():
                     (epoch_time)*(cfg['train']['max_epochs']-epoch-1)/3600))
         if ((epoch + 1) % cfg['train']['save_interval'] == 0) :
             save_path = os.path.join(cfg['train']['save_dir'], \
-                                    f"{cfg['train']['tag']}_epoch_{epoch}.pth")
+                                    f"{cfg['train']['tag']}_epoch_{epoch + 1}.pth")
             torch.save(net.state_dict(), save_path)
             logger.info(f'Save state_dict to: {save_path}')
 
