@@ -575,15 +575,15 @@ class widerface_mosaic(data.Dataset):
                 out_size=[320, 640]
         ) -> None:
         super().__init__()
-        self.img_matas = self.read_coco(root, annotations_file)
         self.use_mosaic = use_mosaic
         if isinstance(out_size, List):
             assert len(out_size) == 2
         self.size = 320
         self.out_size = out_size
-        self.n = len(self.img_matas)
         self.num_landmarks = 5
         np.random.seed(seed)
+        self.img_matas = self.read_coco(root, annotations_file)
+        self.n = len(self.img_matas)
 
     def __len__(self):
         return self.n
@@ -680,7 +680,7 @@ class widerface_mosaic(data.Dataset):
         boxes_all.clip(0, size)
         labels_all = labels_all[mask]
         boxes_all[:, :] /= size
-        target = np.concatenate([boxes_all, labels[:, None]], axis=-1)
+        target = np.concatenate([boxes_all, labels_all[:, None]], axis=-1)
         return img4, target
 
     def load_crop_face(self, index, size, isflip=True):
@@ -758,10 +758,10 @@ class widerface_mosaic(data.Dataset):
         images = []
         for sample in batch:
             image, target = sample
-            images.append(torch.from_numpy(image).transpose(2, 0, 1))
+            images.append(torch.from_numpy(image).permute(2, 0, 1))
             targets.append(torch.from_numpy(target))
         
-        return (torch.stack(images, 0).contiguous(), torch.stack(targets, 0))
+        return (torch.stack(images, 0).contiguous(), targets)
 
     def read_coco(self, root, annotations_file):
         assert os.path.exists(annotations_file)
@@ -777,14 +777,14 @@ class widerface_mosaic(data.Dataset):
             img_id = per_img['id']
             img_path = os.path.join(root, per_img['file_name'])
             labels = []
-            annos = np.empty((0, 14), dtype=np.float32)
+            annos = np.empty((0, self.num_landmarks * 2 + 4), dtype=np.float32)
             for i in range(anno_id, anno_num):
-                if img_id == annos_dict[i]['img_id']:
+                if img_id == annos_dict[i]['image_id']:
                     bbox = annos_dict[i]['bbox']
                     bbox[2] += bbox[0]
                     bbox[3] += bbox[1]
-                    landmarks = annos_dict[i]['segmatation'][0]
-                    np.concatenate([annos, np.array(bbox + landmarks, dtype=np.float32)], axis=0)
+                    landmarks = annos_dict[i]['segmentation'][0]
+                    annos = np.concatenate([annos, np.array(bbox + landmarks, dtype=np.float32).reshape(1, -1)], axis=0)
                     labels.append(1)
                 else:
                     anno_id = i
@@ -808,4 +808,19 @@ if __name__ == '__main__':
     )
 
     for idx, one_batch_data in enumerate(loader):
+        images, targets = one_batch_data
+        images = images.permute(0, 2, 3, 1).contiguous()
+        images = images.numpy().astype(np.uint8)
+        # img = cv2.imread('/home/ww/projects/yudet/data/widerface/WIDER_train/images/0--Parade/0_Parade_marchingband_1_5.jpg')
+        for idx in range(images.shape[0]):
+            target, image = targets[idx], images[idx]
+            h, w, c = image.shape
+            bboxs = (target[:, :14] * w).numpy().astype(np.int32)
+            for box in bboxs:
+                x1, y1, x2, y2 = box[:4]
+                ldm = box[4:]
+                cv2.rectangle(image, pt1=(int(x1), int(y1)), pt2=(int(x2), int(y2)), color=(255, 255, 7))
+                for s in range(0, len(ldm), 2):
+                    cv2.circle(image, center=(int(ldm[s]), int(ldm[s+1])), radius=1, color=(7, 255, 255))
+            cv2.imwrite(f"./images/{idx:04d}.jpg", image)
         break
