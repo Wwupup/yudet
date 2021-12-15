@@ -1,7 +1,7 @@
 #-*- coding:utf-8 -*-
 import os
 from typing import List
-from numpy.random import shuffle
+from numpy.random import choice, shuffle
 import torch
 import numpy as np
 
@@ -592,6 +592,30 @@ class widerface_mosaic(data.Dataset):
             img, target = self.load_crop_face(size=self.size, index=index)
         return img, target
     
+    def safe_resize_flip(self, dsize_w, dsize_h, image, boxes, isflip):
+        h, w, c = image.shape
+        r_w, r_h = dsize_w / w, dsize_h / h
+        r = r_w
+        if r < r_h:
+            r = r_h
+            interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+            image = cv2.resize(image, (int(w * r), dsize_h), interpolation=interp)
+        elif r == r_h:
+            interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+            image = cv2.resize(image, (dsize_w, dsize_h), interpolation=interp)
+        else:
+            interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
+            image = cv2.resize(image, (dsize_w, int(h * r)), interpolation=interp)
+        
+        boxes *= r 
+        # flip
+        # if isflip and np.random.uniform(0., 1.) > 0.5:
+        #     h, w, c = image.shape
+        #     image = cv2.flip(image, 1)
+        #     boxes[:, 4::2] = w - boxes[:, 4::2][:, ::-1]       
+
+        return image
+            
     def load_mosaic_face(self, size, index, isflip=True):
         indices = [index] + [np.random.randint(0, self.n) for _ in range(3)]# 3 additional image indices
         yc, xc = np.random.uniform(0.25 * size, 0.75 * size, 2) # mosaic center x, y
@@ -606,65 +630,34 @@ class widerface_mosaic(data.Dataset):
             boxes = img_mata['annotations'].copy()
             labels = img_mata['labels'].copy()
 
-            # flip
-            h, w, c = image.shape
-            if isflip and np.random.uniform(0., 1.) > 0.5:
-                image = cv2.flip(image, 1)
-                boxes[:, 0::2] = w - boxes[:, 0::2]
 
             if i == 0: # top left
-                img4 = np.full((size, size, c), 0, dtype=np.uint8)  # base image with 4 tiles
+                img4 = np.full((size, size, 3), 0, dtype=np.uint8)  # base image with 4 tiles
 
-                r = max(xc / w, yc / h)
-                if r != 1.:
-                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
-                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
-                    boxes *= r
-                h, w, c = image.shape
-                
+                image = self.safe_resize_flip(xc, yc, image, boxes, isflip)
+                h, w, _ = image.shape             
                 x1a, y1a, x2a, y2a = 0, 0, xc, yc  # xmin, ymin, xmax, ymax (large image)
                 x1b, y1b, x2b, y2b = w - xc, h - yc, w, h  # xmin, ymin, xmax, ymax (small image)
-
+              
             elif i == 1:  # top right
-                r = (size - xc) / w
-                if r != 1.:
-                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
-                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
-                    boxes *= r
-                h, w, c = image.shape
-                
+                image = self.safe_resize_flip(size - xc, 0, image, boxes, isflip)
+                h, w, _ = image.shape           
                 h_right = min(int(0.75 * size), h)
                 x1a, y1a, x2a, y2a = xc, 0, min(xc + w, size), h_right
                 x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), w, h
 
             elif i == 2:  # bottom left
-                r = max(xc / w, (size - yc) / h)
-                if r != 1.:
-                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
-                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
-                    boxes *= r
-                h, w, c = image.shape
-                
+                image = self.safe_resize_flip(xc, size - yc, image, boxes, isflip)
+                h, w, _ = image.shape          
                 x1a, y1a, x2a, y2a = 0, yc, xc, size
                 x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, y2a - y1a
-                if y2b > h:
-                    gap = y2b - h
-                    y1b -= gap                   
-
+                                  
             elif i == 3:  # bottom right
-                r = max((size - xc) / w, (size - h_right) / h)
+                image = self.safe_resize_flip(size - xc, size - h_right, image, boxes, isflip)   
+                h, w, _ = image.shape             
+                x1a, y1a, x2a, y2a = xc, h_right, size, size
+                x1b, y1b, x2b, y2b = 0, 0, x2a - x1a, y2a - y1a
 
-                if r != 1.:
-                    interp = cv2.INTER_AREA if r < 1 else cv2.INTER_LINEAR
-                    image = cv2.resize(image, (int(w * r), int(h * r)), interpolation=interp)
-                    boxes *= r
-                h, w, c = image.shape
-                
-                x1a, y1a, x2a, y2a = xc, h_right, min(xc + w, size), min(size, h_right + h)
-                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), y2a - y1a
-                if y2b > h:
-                    gap = y2b - h
-                    y1b -= gap
                     
             img4[y1a:y2a, x1a:x2a] = image[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
             boxes[:, 0::2] += x1a - x1b
@@ -678,6 +671,7 @@ class widerface_mosaic(data.Dataset):
         labels_all = labels_all[mask]
         boxes_all[:, :] /= size
         target = np.concatenate([boxes_all, labels_all[:, None]], axis=-1)
+
         return img4, target
 
     def load_crop_face(self, index, size, isflip=True):
@@ -687,10 +681,10 @@ class widerface_mosaic(data.Dataset):
         labels = img_mata['labels'].copy()
         height, width, _ = image.shape
 
-        # flip
-        if isflip and np.random.uniform(0., 1.) > 0.5:
-            image = cv2.flip(image, 1)
-            boxes[:, 0::2] = width - boxes[:, 0::2]
+        # # flip
+        # if isflip and np.random.uniform(0., 1.) > 0.5:
+        #     image = cv2.flip(image, 1)
+        #     boxes[:, 0::2] = width - boxes[:, 0::2]
 
         # crop
         attemp_num = 1024
@@ -738,7 +732,6 @@ class widerface_mosaic(data.Dataset):
         height, width, _ = image.shape
         boxes[:, 0::2] /= width
         boxes[:, 1::2] /= height
-        # assert width == height
 
         # resize
         interp_methods = [cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_NEAREST, cv2.INTER_LANCZOS4]
@@ -758,7 +751,7 @@ class widerface_mosaic(data.Dataset):
             images.append(torch.from_numpy(image).permute(2, 0, 1))
             targets.append(torch.from_numpy(target))
         
-        return (torch.stack(images, 0).contiguous(), targets)
+        return (torch.stack(images, 0).contiguous().float(), targets)
 
     def read_coco(self, root, annotations_file):
         assert os.path.exists(annotations_file)
@@ -811,7 +804,7 @@ class Widerface_pytorch_loader(object):
         self.shuffle=shuffle
         self.batch_size = batch_size
         np.random.seed(seed)
-        self.reset()
+        self.reset(size=out_sizes[1])
 
     def reset(self, size=0, use_mosaic=True):
         if size == 0:
@@ -841,28 +834,47 @@ class Widerface_pytorch_loader(object):
     
 
 if __name__ == '__main__':
-    loader = Widerface_pytorch_loader(
-        root='/home/ww/projects/yudet/data/widerface/WIDER_train/images',
-        annotations_file='/home/ww/projects/yudet/data/widerface/trainset.json',
-        batch_size=16,
-        num_workers=4,
-        pin_memory=True,
-        out_sizes=[320, 640]
-    )
+    # loader = Widerface_pytorch_loader(
+    #     root='/home/ww/projects/yudet/data/widerface/WIDER_train/images',
+    #     annotations_file='/home/ww/projects/yudet/data/widerface/trainset.json',
+    #     batch_size=16,
+    #     num_workers=1,
+    #     pin_memory=True,
+    #     out_sizes=[320, 640]
+    # )
 
-    for idx, one_batch_data in enumerate(loader):
-        images, targets = one_batch_data
-        images = images.permute(0, 2, 3, 1).contiguous()
-        images = images.numpy().astype(np.uint8)
-        for idx in range(images.shape[0]):
-            target, image = targets[idx], images[idx]
-            h, w, c = image.shape
-            bboxs = (target[:, :14] * w).numpy().astype(np.int32)
-            for box in bboxs:
-                x1, y1, x2, y2 = box[:4]
-                ldm = box[4:]
-                cv2.rectangle(image, pt1=(int(x1), int(y1)), pt2=(int(x2), int(y2)), color=(255, 255, 7))
-                for s in range(0, len(ldm), 2):
-                    cv2.circle(image, center=(int(ldm[s]), int(ldm[s+1])), radius=1, color=(7, 255, 255))
-            cv2.imwrite(f"./images/{idx:04d}.jpg", image)
-        break
+    # for ids, one_batch_data in enumerate(loader):
+    #     images, targets = one_batch_data
+    #     images = images.permute(0, 2, 3, 1).contiguous()
+    #     images = images.numpy().astype(np.uint8)
+    #     for idx in range(images.shape[0]):
+    #         target, image = targets[idx], images[idx]
+    #         h, w, c = image.shape
+    #         bboxs = (target[:, :14] * w).numpy().astype(np.int32)
+    #         for box in bboxs:
+    #             x1, y1, x2, y2 = box[:4]
+    #             ldm = box[4:]
+    #             cv2.rectangle(image, pt1=(int(x1), int(y1)), pt2=(int(x2), int(y2)), color=(255, 255, 7))
+    #             for s in range(0, len(ldm), 2):
+    #                 cv2.circle(image, center=(int(ldm[s]), int(ldm[s+1])), radius=1, color=(7, 255, 255))
+    #         cv2.imwrite(f"./images/woca_{ids:04d}_{idx:04d}.jpg", image)
+    #     if ids > 50:
+    #         break
+    dataset = widerface_mosaic(
+            root='/home/ww/projects/yudet/data/widerface/WIDER_train/images',
+            annotations_file='/home/ww/projects/yudet/data/widerface/trainset.json',
+            use_mosaic=True,
+            size=640
+        )
+    np.random.seed(347)
+    for i in range(len(dataset)):
+        image, target = dataset.__getitem__(i)
+        # h, w, c = image.shape
+        # bboxs = (target[:, :14] * w).astype(np.int32)
+        # for box in bboxs:
+        #     x1, y1, x2, y2 = box[:4]
+        #     ldm = box[4:]
+        #     cv2.rectangle(image, pt1=(int(x1), int(y1)), pt2=(int(x2), int(y2)), color=(255, 255, 7))
+        #     for s in range(0, len(ldm), 2):
+        #         cv2.circle(image, center=(int(ldm[s]), int(ldm[s+1])), radius=1, color=(7, 255, 255))
+        #     cv2.imwrite(f"./images/woca_{i:04d}.jpg", image)
