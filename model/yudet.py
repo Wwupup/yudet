@@ -121,6 +121,7 @@ class YuDetectNet(nn.Module):
                     top_k=self.cfg['test']['top_k']
         )
         if len(keep_idx) > 0:
+            keep_idx = keep_idx.reshape(-1)
             boxes = boxes[keep_idx]
             scores = scores[keep_idx]
             dets = torch.cat([boxes, scores[:, None]], dim=-1)

@@ -62,8 +62,7 @@ test:
     logfile: True
     sysout: True
   dataset:
-    name: WIDERface
-    type: widerface
+    mode: widerface
     root: ./data/widerface/
     split: val
 

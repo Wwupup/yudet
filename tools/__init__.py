@@ -52,6 +52,7 @@ def eval_widerface(kargs: dict):
 
 def save_res(dets, event, name, save_path):
     txt_name = name[:-4]+'.txt'
+    save_path = os.path.join(save_path, event)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 

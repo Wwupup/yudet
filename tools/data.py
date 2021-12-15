@@ -458,10 +458,10 @@ class DaliWiderfaceDataset(object):
 class WIDERFace(data.Dataset):
     '''Dataset class for WIDER Face dataset'''
 
-    def __init__(self, **kargs):
+    def __init__(self, kargs):
         self.root = kargs.get('root', None)
         self.split = kargs.get('split', 'val')
-        assert self.root == None
+        assert self.root is not None
 
         self.widerface_img_paths = {
             'val':  os.path.join(self.root, 'WIDER_val', 'images'),
@@ -511,13 +511,10 @@ class WIDERFace(data.Dataset):
     def size(self):
         return self.num_img
 
-    @property
-    def split(self):
-        return self.split
 
 
 class CCPDtestloader(object):
-    def __init__(self, **kargs) -> None:
+    def __init__(self, kargs) -> None:
         super().__init__()
         self.root = kargs.get('root', None)
         self.split = kargs.get('split', None)
@@ -540,7 +537,7 @@ class CCPDtestloader(object):
         return len(self.images)
 
 class HanCotestloader(object):
-    def __init__(self, **kargs) -> None:
+    def __init__(self, kargs) -> None:
         super().__init__()
         self.root = kargs.get('root', None)
         self.split = kargs.get('split', None)

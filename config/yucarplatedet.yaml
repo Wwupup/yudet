@@ -60,8 +60,7 @@ test:
     logfile: True
     sysout: True
   dataset:
-    name: CCPD_coco
-    type: coco
+    mode: CCPD
     root: ./data/CCPD2019/
     split: test
 

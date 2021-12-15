@@ -74,7 +74,7 @@ def main():
                 mode=cfg['test']['dataset']['mode'],
                 results=results,
                 results_save_dir=cfg['test']['save_dir'],
-                gt_root=os.path.join(cfg['test']['dataset']['root']),
+                gt_root=os.path.join(cfg['test']['dataset']['root'], 'ground_truth'),
                 iou_tresh=cfg['test']['ap_threshold'],
                 split= cfg['test']['dataset']['split']
     )
