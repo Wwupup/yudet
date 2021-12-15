@@ -1,6 +1,7 @@
 #-*- coding:utf-8 -*-
 import os
 from typing import List
+from numpy.random import shuffle
 import torch
 import numpy as np
 
@@ -570,18 +571,14 @@ class widerface_mosaic(data.Dataset):
     def __init__(self, 
                 root,
                 annotations_file,
-                use_mosaic=False,    
-                seed=347,
-                out_size=[320, 640]
+                use_mosaic,  
+                size  
         ) -> None:
         super().__init__()
         self.use_mosaic = use_mosaic
-        if isinstance(out_size, List):
-            assert len(out_size) == 2
-        self.size = out_size[1]
-        self.out_size = out_size
+
+        self.size = size
         self.num_landmarks = 5
-        np.random.seed(seed)
         self.img_matas = self.read_coco(root, annotations_file)
         self.n = len(self.img_matas)
 
@@ -795,38 +792,68 @@ class widerface_mosaic(data.Dataset):
 
 class Widerface_pytorch_loader(object):
     def __init__(self, 
-        root, 
-        annotations_file, 
-        num_workers, 
-        pin_memory, 
-        shuffle, 
-        collate_fn,
-        out_sizes) -> None:
+                root, 
+                annotations_file, 
+                num_workers,
+                batch_size, 
+                out_sizes,
+                pin_memory=True, 
+                shuffle=True, 
+                seed=347
+        ) -> None:
         super().__init__()
         assert isinstance(out_sizes, List) and len(out_sizes) == 2
-        self.size = out_sizes[1]
-    def reset(self):
-        self.size = np.random.randint()
+        self.out_sizes = out_sizes
+        self.root=root
+        self.annotations_file=annotations_file
+        self.num_workers=num_workers
+        self.pin_memory=pin_memory
+        self.shuffle=shuffle
+        self.batch_size = batch_size
+        np.random.seed(seed)
+        self.reset()
+
+    def reset(self, size=0, use_mosaic=True):
+        if size == 0:
+            self.size = np.random.randint(self.out_sizes[0], self.out_sizes[1] + 1)
+        else:
+            self.size = size
+        dataset = widerface_mosaic(
+                root=self.root,
+                annotations_file=self.annotations_file,
+                use_mosaic=use_mosaic,
+                size=self.size
+        )
+        self.dataloader = torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=self.batch_size,
+                num_workers=self.num_workers,
+                pin_memory=self.pin_memory,
+                collate_fn=dataset.collate_fn,
+                shuffle=self.shuffle
+        )
+    
+    def __len__(self):
+        return len(self.dataloader)
+
+    def __iter__(self):
+        return iter(self.dataloader)
+    
 
 if __name__ == '__main__':
-    dataset = widerface_mosaic(
+    loader = Widerface_pytorch_loader(
         root='/home/ww/projects/yudet/data/widerface/WIDER_train/images',
         annotations_file='/home/ww/projects/yudet/data/widerface/trainset.json',
-        use_mosaic=False
-    )
-    loader = torch.utils.data.DataLoader(
-        dataset=dataset,
         batch_size=16,
         num_workers=4,
         pin_memory=True,
-        collate_fn=dataset.collate_fn
+        out_sizes=[320, 640]
     )
 
     for idx, one_batch_data in enumerate(loader):
         images, targets = one_batch_data
         images = images.permute(0, 2, 3, 1).contiguous()
         images = images.numpy().astype(np.uint8)
-        # img = cv2.imread('/home/ww/projects/yudet/data/widerface/WIDER_train/images/0--Parade/0_Parade_marchingband_1_5.jpg')
         for idx in range(images.shape[0]):
             target, image = targets[idx], images[idx]
             h, w, c = image.shape
