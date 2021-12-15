@@ -41,22 +41,22 @@ def log_initial(cfg):
 
 def detect_image(net, img_path, cfg):
     img = cv2.imread(img_path)
-    det = net.inference(img, scale=1., without_landmarks=False)
-    det = det.cpu().numpy()
-    if len(det) == 0:
+    dets = net.inference(img, scale=1., without_landmarks=False)
+    dets = dets.cpu().numpy()
+    if len(dets) == 0:
         print('Detect 0 taeget!')
         return
-    scores = det[:, -1]
-    det = det[:, :-1].astype(np.int32)
-    for det, score in zip(det, scores):
+    scores = dets[:, -1]
+    dets = dets[:, :-1].astype(np.int32)
+    for det, score in zip(dets, scores):
         img = cv2.rectangle(img, (det[0], det[1]), (det[2], det[3]), color=(0, 0, 255), thickness=1)
-        img = cv2.putText(img, f"{score:4f}", (det[0], det[1] + 12), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255))
+        # img = cv2.putText(img, f"{score:4f}", (det[0], det[1] + 12), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255))
         ldms_num = int((det.shape[-1] - 4) / 2)
         for i in range(ldms_num):
-            cv2.circle(img, (det[4 + 2 * i], det[5 + 2 * i]), 2, (255, 255, 0), thickness=5)
+            cv2.circle(img, (det[4 + 2 * i], det[5 + 2 * i]), 2, (255, 255, 0), thickness=1)
     save_path = os.path.join(cfg['test']['save_dir'], os.path.basename(img_path))
     cv2.imwrite( save_path, img)
-    print(f'Detect {0 if len(det.shape) == 1 else det.shape[0]} target, Save img to {save_path}')
+    print(f'Detect {0 if len(dets.shape) == 1 else dets.shape[0]} target, Save img to {save_path}')
 
 def detect_video(net, video_path, cfg):
     cap = cv2.VideoCapture(video_path)
@@ -69,6 +69,7 @@ def detect_video(net, video_path, cfg):
                 fps,
                 size
     )
+    print('Detect video, please wait ...')
     while(True):
         ret, frame = cap.read()
         if ret:
@@ -79,7 +80,7 @@ def detect_video(net, video_path, cfg):
             for det, score in zip(det, scores):
                 frame = cv2.rectangle(frame, (det[0], det[1]), (det[2], det[3]), color=(0, 0, 255), thickness=1)
                 frame = cv2.putText(frame, f"{score:4f}", (det[0], det[1] + 12), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255))
-                for i in range((det.shape[1] - 5) / 2):
+                for i in range(int((det.shape[-1] - 4) / 2)):
                     cv2.circle(frame, (det[4 + 2 * i], det[5 + 2 * i]), 2, (255, 255, 0), thickness=5)
             video_writer.write(frame)
         else:
@@ -105,10 +106,10 @@ def main():
     target = args.target
     img_paths = []
     if os.path.isdir(target):
-        img_paths = glob.glob(os.path.join(target, '*.jpg'))
-        img_paths.append(glob.glob(os.path.join(target, '*.jpeg'))) 
-        img_paths.append(glob.glob(os.path.join(target, '*.png')))         
-        img_paths.append(glob.glob(os.path.join(target, '*.mp4')))
+        img_paths.extend(glob.glob(os.path.join(target, '*.jpg')))
+        img_paths.extend(glob.glob(os.path.join(target, '*.jpeg'))) 
+        img_paths.extend(glob.glob(os.path.join(target, '*.png')))         
+        img_paths.extend(glob.glob(os.path.join(target, '*.mp4')))
     else:
         img_paths.append(target)
 
