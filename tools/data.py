@@ -1,7 +1,6 @@
 #-*- coding:utf-8 -*-
 import os
 from typing import List
-from numpy.random import choice, shuffle
 import torch
 import numpy as np
 
