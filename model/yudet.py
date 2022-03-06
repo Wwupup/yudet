@@ -3,7 +3,7 @@ import torch.nn as nn
 import cv2
 from .nets.layers import PriorBox
 from .nets.yunet import Yunet
-from .nets.yuhead import Yuhead, Yuhead_PAN, Yuhead_double
+from .nets.yuhead import Yuhead, Yuhead_PAN, Yuhead_double, Yuhead_naive, Yuhead_originfpn, Yuhead_originfpn_large
 from .losses.multiboxloss import MultiBoxLoss
 from .src.utils import decode
 
@@ -24,6 +24,12 @@ class YuDetectNet(nn.Module):
                 head_conv = Yuhead_PAN
             elif head_name.lower() == 'yuhead_double':
                 head_conv = Yuhead_double
+            elif head_name.lower() == 'yuhead_originfpn':
+                head_conv = Yuhead_originfpn
+            elif head_name.lower() == 'yuhead_originfpn_large':
+                head_conv = Yuhead_originfpn_large 
+            elif head_name.lower() == 'yuhead_naive':
+                head_conv = Yuhead_naive
             else:
                 raise ImportError(f"No head name {head_name}")
         else:
@@ -129,3 +135,81 @@ class YuDetectNet(nn.Module):
         else:
             dets = torch.empty((0, box_dim + 1)).cuda()
         return dets
+
+    def export_cpp(self, filename):
+        '''This function can export CPP data file for libfacedetection'''
+        result_str = '// Auto generated data file\n'
+        result_str += '// Copyright (c) 2018-2021, Shiqi Yu, all rights reserved.\n'
+        result_str += '#include "facedetectcnn.h" \n\n'
+        
+        DPConvs = []
+        DPConvs += [self.model0]
+        DPConvs += [self.model1.conv1, self.model1.conv2]
+        DPConvs += [self.model2.conv1, self.model2.conv2]
+        DPConvs += [self.model3.conv1, self.model3.conv2]
+        DPConvs += [self.model4.conv1, self.model4.conv2]
+        DPConvs += [self.model5.conv1, self.model5.conv2]
+        DPConvs += [self.model6.conv1, self.model6.conv2]
+        # for (l, c) in zip(self.loc, self.conf):
+        #     DPConvs += [l.conv1, l.conv2]
+        #     DPConvs += [c.conv1, c.conv2]
+        for layers in self.head:
+            DPConvs += [layers.conv1, layers.conv2]
+
+        # convert to a string
+        num_conv = len(DPConvs)
+
+        # the first conv_head layer
+        # result_str += convert_param2string(combine_conv_bn(DPConvs[0], self.model0.bn1), 'f0', False, True)
+        # result_str += DPConvs[0].convert_to_cppstring()
+        # the rest depthwise+pointwise conv layers
+        for idx in range(0, num_conv):
+            rs = DPConvs[idx].convert_to_cppstring('f' + str(idx))
+            result_str += rs
+            result_str += '\n'
+
+        result_str += 'ConvInfoStruct param_pConvInfo[' + str(num_conv*2 - 1) + '] = { \n'
+        result_str += '   {32, ' + str(DPConvs[0].out_channels) +', false, true, true, f0_weight, f0_bias},\n'
+        
+        for idx in range(1, num_conv):
+            result_str += ('    {' +
+                           str(DPConvs[idx].in_channels) + ', ' +
+                           str(DPConvs[idx].out_channels) + ', ' +
+                           'false, ' + # is_depthwise 
+                           'true, ' + # is_pointwise
+                           'false, ' + # with_relu
+                           'f' + str(idx) + '_1_weight' + ', ' +
+                           'f' + str(idx) + '_1_bias' +
+                           '}')
+
+            result_str += ','
+            result_str += '\n'
+
+            with_relu = 'false, '
+            if(DPConvs[idx].withBNRelu):
+                with_relu = 'true, '
+
+            result_str += ('    {' +
+                           str(DPConvs[idx].out_channels) + ', ' +
+                           str(DPConvs[idx].out_channels) + ', ' +
+                           'true, ' + # is_depthwise 
+                           'false, ' + # is_pointwise
+                           with_relu + # with_relu
+                           'f' + str(idx) + '_2_weight' + ', ' +
+                           'f' + str(idx) + '_2_bias' +
+                           '}')
+
+            if (idx < num_conv - 1):
+                result_str += ','
+            result_str += '\n'
+
+        result_str += '};\n'
+        
+
+        # write the content to a file
+        #print(result_str)
+        with open(filename, 'w') as f:
+            f.write(result_str)
+            f.close()
+
+        return 0 

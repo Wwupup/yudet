@@ -36,7 +36,7 @@ class Yunet(nn.Module):
         x = self.model2(x)
         x = F.max_pool2d(x, 2)
         p1 = self.model3(x)
-        x = F.max_pool2d(x, 2)
+        x = F.max_pool2d(p1, 2)
         p2 = self.model4(x)
         x = F.max_pool2d(p2, 2)
         p3 = self.model5(x)

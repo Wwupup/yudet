@@ -20,16 +20,23 @@ parser.add_argument('--model', '-m', type=str, help='model path to test')
 
 
 def arg_initial(args):
-    workfolder = os.path.dirname(os.path.dirname(args.model))
-    cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
-    assert len(cfg_list) == 1, 'Can`t comfire config file!'
-    with open(cfg_list[0], mode='r', encoding='utf-8') as f:
-        cfg = yaml.safe_load(f)
+    if args.config is not None:
+        workfolder = '/home/ww/projects/yudet/workspace/debug'
+        with open(args.config, mode='r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+    else:
+        workfolder = os.path.dirname(os.path.dirname(args.model))
+        cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
+        assert len(cfg_list) == 1, 'Can`t comfire config file!'
+        with open(cfg_list[0], mode='r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+
     log_dir = os.path.join(workfolder, 'log')
     cfg['test']['log_dir'] = log_dir
     save_dir = os.path.join(workfolder, 'results')
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
+        print(f"Create new folder (save folder): {os.path.abspath(save_dir)}")
     cfg['test']['save_dir'] = save_dir    
     # with open(os.path.join(workfolder, os.path.basename(args.config)), mode='w', encoding='utf-8') as f:
     #     yaml.safe_dump(cfg, f)
@@ -46,7 +53,7 @@ def main():
 
     logger.info(f'Loading model from {args.model}')
     net = YuDetectNet(cfg)
-    net.load_state_dict(torch.load(args.model))
+    net.load_state_dict(torch.load(args.model), strict=True)
     net.eval()
     net.cuda()
     cudnn.benchmark = True

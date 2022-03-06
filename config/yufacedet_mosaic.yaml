@@ -5,7 +5,7 @@ model:
   backbone:
     type: Yunet
   head:
-    type: yuhead
+    type: yuhead 
     in_channels: [64, 64, 64, 64]
     num_classes: 2
     num_landmarks: 5
@@ -25,21 +25,18 @@ model:
     weight_cls: 1.
 
 dataset:
-  type: DaliLoaderWithLandmarks
+  type: Widerface_pytorch_loader
   img_root: ./data/widerface/WIDER_train/images
   annotations_file: ./data/widerface/trainset.json
   shuffle: True
-  shuffle_after_epoch: False
   num_workers: 4
   # multi_scale training
-  # image_size: [320, 640]
-  image_size: 480
-
+  image_size: [480, 840]
 train:
   lr: 0.01
   momentum: 0.9
   weight_decay: 0.0005
-  seed: -1
+  seed: 347
   batch_size: 16
   start_epoch: 0
   max_epochs: 1000
@@ -63,7 +60,8 @@ test:
     logfile: True
     sysout: True
   dataset:
-    mode: widerface
+    name: WIDERface
+    type: widerface
     root: ./data/widerface/
     split: val
 
