@@ -136,3 +136,143 @@ class Yuhead_double(nn.Module):
             out = torch.cat([reg_data[..., :-1], cls_data[..., :], reg_data[..., -1:]], dim=-1)
             outs.append(out.view(n, h, w, -1).permute(0, 3, 1, 2).contiguous())
         return outs
+
+
+class Yuhead_originfpn(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        assert len(in_channels) == len(out_channels)
+        self.head = nn.ModuleList(
+            [Conv4layerBlock(in_c, out_c, withBNRelu=False) for \
+                in_c, out_c in zip(in_channels, out_channels)]
+        )
+        self.fpn = nn.ModuleList([nn.Sequential(
+                                nn.Conv2d(
+                                            in_channels=in_c,
+                                            out_channels=in_c,
+                                            stride=1,
+                                            kernel_size=1),
+                                nn.BatchNorm2d(in_c),
+                                nn.ReLU(inplace=True)           
+                                ) for in_c in in_channels])
+                
+        self.init_weights()
+        
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    nn.init.xavier_normal_(m.weight.data)
+                    m.bias.data.fill_(0.02)
+                else:
+                    m.weight.data.normal_(0, 0.01)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, feats):
+        assert isinstance(feats, List)
+        outs = []
+        up = self.head[-1].conv1(self.fpn[-1](feats[-1]))
+        out = self.head[-1].conv2(up)
+        outs.append(out)
+        for i in range(len(feats) - 2, -1, -1):
+            up = F.interpolate(
+                up, 
+                size=[feats[i].size(2), feats[i].size(3)], 
+                mode="nearest"
+            )
+            up = self.head[i].conv1(self.fpn[i](feats[i]) + up)
+            out = self.head[i].conv2(up)
+            outs.insert(0, out)
+
+        return outs   
+
+class Yuhead_originfpn_large(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        assert len(in_channels) == len(out_channels)
+        self.head = nn.ModuleList(
+            [ConvDPUnit(in_c, out_c, withBNRelu=False) for \
+                in_c, out_c in zip(in_channels, out_channels)]
+        )
+        self.fpn_pre = nn.ModuleList([nn.Sequential(
+                                nn.Conv2d(
+                                            in_channels=in_c,
+                                            out_channels=in_c,
+                                            stride=1,
+                                            kernel_size=1),
+                                nn.BatchNorm2d(in_c),
+                                nn.ReLU(inplace=True)           
+                                ) for in_c in in_channels])
+        self.fpn_aft = nn.ModuleList([nn.Sequential(
+                                nn.Conv2d(
+                                            in_channels=in_c,
+                                            out_channels=in_c,
+                                            stride=1,
+                                            kernel_size=3,
+                                            padding=1),
+                                nn.BatchNorm2d(in_c),
+                                nn.ReLU(inplace=True)           
+                                ) for in_c in in_channels])             
+        self.init_weights()
+        
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    nn.init.xavier_normal_(m.weight.data)
+                    m.bias.data.fill_(0.02)
+                else:
+                    m.weight.data.normal_(0, 0.01)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, feats):
+        assert isinstance(feats, List)
+        outs = []
+        up = self.fpn_aft[-1](self.fpn_pre[-1](feats[-1]))
+        out = self.head[-1](up)
+        outs.append(out)
+        for i in range(len(feats) - 2, -1, -1):
+            up = F.interpolate(
+                up, 
+                size=[feats[i].size(2), feats[i].size(3)], 
+                mode="nearest"
+            )
+            up = self.fpn_aft[i](self.fpn_pre[i](feats[i]) + up)
+            out = self.head[i](up)
+            outs.insert(0, out)
+
+        return outs 
+
+
+class Yuhead_naive(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        assert len(in_channels) == len(out_channels)
+        self.head = nn.ModuleList(
+            [Conv4layerBlock(in_c, out_c, withBNRelu=False) for \
+                in_c, out_c in zip(in_channels, out_channels)]
+        )
+        self.init_weights()
+        
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    nn.init.xavier_normal_(m.weight.data)
+                    m.bias.data.fill_(0.02)
+                else:
+                    m.weight.data.normal_(0, 0.01)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, feats):
+        assert isinstance(feats, List)
+        outs = [h(f) for h, f in zip(self.head, feats)]
+        return outs

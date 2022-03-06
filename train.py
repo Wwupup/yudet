@@ -27,6 +27,7 @@ def arg_initial(args):
 
     if not os.path.exists(cfg['train']['workspace']):
         os.mkdir(cfg['train']['workspace'])
+        print(f"Create new folder (workspace): {os.path.abspath(cfg['train']['workspace'])}")
     if not cfg['train'].__contains__('tag'):
         if args.tag != None:
             cfg['train']['tag'] = cfg['train']['prefix'] + args.tag
@@ -39,6 +40,8 @@ def arg_initial(args):
 
     if not os.path.exists(workfolder):
         os.mkdir(workfolder)
+        print(f"Create new folder (workfolder): {os.path.abspath(workfolder)}")
+
     save_dir = os.path.join(workfolder, 'weights')
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
