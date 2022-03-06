@@ -10,7 +10,7 @@ tools/coco_eval/cocoapi
 /pretrain/*
 teststream.sh
 /rebuid2yudet.ipynb
-/calc_flops_params.py
+# /calc_flops_params.py
 /model_anasizy.py
 /images/*
 /train_mosaic.py
