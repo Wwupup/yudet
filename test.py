@@ -17,6 +17,8 @@ from tools import get_testloader, evaluation
 parser = argparse.ArgumentParser(description='Face and Landmark Detection')
 parser.add_argument('--config', '-c', type=str, help='config to test')
 parser.add_argument('--model', '-m', type=str, help='model path to test')
+parser.add_argument('--confidence_threshold', type=float, help='confidence threshold to save result')
+
 
 
 def arg_initial(args):
@@ -25,6 +27,10 @@ def arg_initial(args):
     assert len(cfg_list) == 1, 'Can`t comfire config file!'
     with open(cfg_list[0], mode='r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
+
+    if args.confidence_threshold is not None:
+        cfg['test']['confidence_threshold'] = args.confidence_threshold
+
     log_dir = os.path.join(workfolder, 'log')
     cfg['test']['log_dir'] = log_dir
     save_dir = os.path.join(workfolder, 'results')

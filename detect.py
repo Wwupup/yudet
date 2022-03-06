@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser(description='Face and Landmark Detection')
 parser.add_argument('--config', '-c', type=str, help='config to test')
 parser.add_argument('--model', '-m', type=str, help='model path to test')
 parser.add_argument('-t', '--target', type=str, help='image/image folder/video path')
+parser.add_argument('--confidence_threshold', type=float, help='confidence threshold to save result')
 
 def arg_initial(args):
     workfolder = os.path.dirname(os.path.dirname(args.model))
@@ -24,28 +25,29 @@ def arg_initial(args):
     assert len(cfg_list) == 1, 'Can`t comfire config file!'
     with open(cfg_list[0], mode='r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
-    log_dir = os.path.join(workfolder, 'log')
-    cfg['test']['log_dir'] = log_dir
     save_dir = os.path.join(workfolder, 'detect_results')
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
     cfg['test']['save_dir'] = save_dir 
-    cfg['test']['logger']['logfile'] = False
-    cfg['test']['logger']['sysout'] = True
     assert os.path.exists(args.target)
 
+    if args.confidence_threshold is not None:
+        cfg['test']['confidence_threshold'] = args.confidence_threshold
+        
     return cfg
 
-def log_initial(cfg):
-    return Logger(cfg, mode='test')
 
 def detect_image(net, img_path, cfg):
     img = cv2.imread(img_path)
+
+    t0 = time.time()
     dets = net.inference(img, scale=1., without_landmarks=False)
+    t1 = time.time()
+
     dets = dets.cpu().numpy()
     if len(dets) == 0:
         print('Detect 0 taeget!')
-        return
+        return t1 - t0
     scores = dets[:, -1]
     dets = dets[:, :-1].astype(np.int32)
     for det, score in zip(dets, scores):
@@ -55,8 +57,9 @@ def detect_image(net, img_path, cfg):
         for i in range(ldms_num):
             cv2.circle(img, (det[4 + 2 * i], det[5 + 2 * i]), 2, (255, 255, 0), thickness=1)
     save_path = os.path.join(cfg['test']['save_dir'], os.path.basename(img_path))
-    cv2.imwrite( save_path, img)
+    cv2.imwrite(save_path, img)
     print(f'Detect {0 if len(dets.shape) == 1 else dets.shape[0]} target, Save img to {save_path}')
+    return t1 - t0
 
 def detect_video(net, video_path, cfg):
     cap = cv2.VideoCapture(video_path)
@@ -70,10 +73,15 @@ def detect_video(net, video_path, cfg):
                 size
     )
     print('Detect video, please wait ...')
+    total_time = 0
+    num_frames = 0
     while(True):
         ret, frame = cap.read()
         if ret:
+            t0 = time.time()
             det = net.inference(frame, scale=1., without_landmarks=False)
+            total_time += time.time() - t0
+            num_frames += 1
             det = det.cpu().numpy()            
             scores = det[:, -1]
             det = det[:, :-1].astype(np.int32)
@@ -88,15 +96,15 @@ def detect_video(net, video_path, cfg):
     cap.release()
     video_writer.release()
     print(f'Save video to {save_path}')
+    return total_time, num_frames
 
 
 def main():
     args = parser.parse_args()
     cfg = arg_initial(args)
-    logger = log_initial(cfg)
     torch.set_grad_enabled(False)
 
-    logger.info(f'Loading model from {args.model}')
+    print(f'Loading model from {args.model}')
     net = YuDetectNet(cfg)
     net.load_state_dict(torch.load(args.model))
     net.eval()
@@ -114,14 +122,23 @@ def main():
         img_paths.append(target)
 
     print(f'{len(img_paths)} files to be detected...')
+
+    total_time = 0
+    num_frames = 0
     for img_path in img_paths:
         filename, tp = os.path.splitext(os.path.basename(img_path))
         if tp.lower() in ('.jpg', '.jpeg', '.png'):
-            detect_image(net, img_path, cfg)
+            total_time += detect_image(net, img_path, cfg)
+            num_frames += 1
         elif tp.lower() in ('.mp4'):
-            detect_video(net, img_path, cfg)
+            _total_time, _num_frames = detect_video(net, img_path, cfg)
+            total_time += _total_time
+            num_frames += _num_frames
         else:
-            print('Unsupport file!')
+            print(f'{img_path}: Unsupport file!')
+    
+    print(f'Detect {num_frames} images and achieve {int(num_frames / total_time)} fps.')
+
 
 
 if __name__ == "__main__":
