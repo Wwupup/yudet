@@ -22,7 +22,6 @@ parser.add_argument('--confidence_threshold', type=float, help='confidence thres
 
 
 def arg_initial(args):
-<<<<<<< HEAD
     workfolder = os.path.dirname(os.path.dirname(args.model))
     cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
     assert len(cfg_list) == 1, 'Can`t comfire config file!'
@@ -31,18 +30,6 @@ def arg_initial(args):
 
     if args.confidence_threshold is not None:
         cfg['test']['confidence_threshold'] = args.confidence_threshold
-=======
-    if args.config is not None:
-        workfolder = '/home/ww/projects/yudet/workspace/debug'
-        with open(args.config, mode='r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
-    else:
-        workfolder = os.path.dirname(os.path.dirname(args.model))
-        cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
-        assert len(cfg_list) == 1, 'Can`t comfire config file!'
-        with open(cfg_list[0], mode='r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
->>>>>>> 7e07142a9098095d6919a01172558a2dc140a732
 
     log_dir = os.path.join(workfolder, 'log')
     cfg['test']['log_dir'] = log_dir
