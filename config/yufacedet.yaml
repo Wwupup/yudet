@@ -32,8 +32,8 @@ dataset:
   shuffle_after_epoch: False
   num_workers: 4
   # multi_scale training
-  # image_size: [320, 640]
-  image_size: 480
+  image_size: [320, 800]
+  # image_size: 480
 
 train:
   lr: 0.01
