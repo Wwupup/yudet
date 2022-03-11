@@ -1,6 +1,5 @@
 import argparse
 import os
-from numpy.core.fromnumeric import argsort
 import yaml
 import glob
 import torch

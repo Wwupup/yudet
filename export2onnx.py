@@ -12,8 +12,8 @@ import onnxruntime
 from model import YuDetectNet
 
 parser = argparse.ArgumentParser(description='Face and Landmark Detection')
-parser.add_argument('--config', '-c', type=str, help='config to test')
-parser.add_argument('--model', '-m', type=str, help='model weights path')
+parser.add_argument('--config', '-c', default="/home/ww/projects/yudet/workspace/facenvive/yufacedet.yaml", type=str, help='config to test')
+parser.add_argument('--model', '-m', default="/home/ww/projects/yudet/workspace/facenvive/weights/best_rebuild.pth", type=str, help='model weights path')
 parser.add_argument('--tag', '-t', type=str, help='tag to mark weight')
 
 def arg_initial(args):
@@ -55,6 +55,8 @@ def main():
     ort_session = onnxruntime.InferenceSession(output_path)
     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(img)}
     
+    # net_opencv = cv2.dnn.readNetFromONNX(output_path)
+
     epoch = 1000
     ort_t_1 = time.time()
     for i in range(epoch):
@@ -66,9 +68,18 @@ def main():
         torch_outs = net(img)
     torch_t_2 = time.time()
 
-    print(f"Loop {epoch}\ntorch time:{torch_t_2 - torch_t_1}\nort time: {ort_t_2 - ort_t_1}")
+    # opencv_t_1 = time.time()
+    # for i in range(epoch):
+    #     net_opencv.setInput(img)
+    #     opencv_outs = net_opencv.forward()
+    # opencv_t_2 = time.time()
+
+    # print(f"Loop {epoch}\ntorch time:{torch_t_2 - torch_t_1}\nort time: {ort_t_2 - ort_t_1}\nopencv time: {opencv_t_2 - opencv_t_1}")
     for torch_out, ort_out in zip(torch_outs, ort_outs):
         np.testing.assert_allclose(to_numpy(torch_out), ort_out, rtol=1e-03, atol=1e-05)
+
+    # for torch_out, ort_out in zip(torch_outs, ort_outs):
+    #     np.testing.assert_allclose(to_numpy(torch_out), opencv_outs, rtol=1e-03, atol=1e-05)  
 
     print('Successful!')
     
