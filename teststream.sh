@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-target="facenvive"
+target="facetinyfpn480640"
 prefix="/home/ww/projects/yudet/workspace/${target}/weights/"
 python test.py -m ${prefix}${target}_final.pth
 

@@ -25,6 +25,7 @@ pip install pyyaml
 widerface_eval
 python setup.py build_ext --inplace
 
+pip install onnx
 
 
 //

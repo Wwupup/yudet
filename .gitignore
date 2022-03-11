@@ -14,3 +14,4 @@ tools/coco_eval/cocoapi
 /model_anasizy.py
 /images/*
 /train_mosaic.py
+/refmodels/*
