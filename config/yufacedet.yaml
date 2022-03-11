@@ -2,6 +2,7 @@
 
 name: YuFaceDet
 model: 
+  activation_type: relu
   backbone:
     type: Yunet
   head:

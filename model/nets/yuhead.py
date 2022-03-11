@@ -2,15 +2,16 @@ from typing import List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .layers import Conv4layerBlock, ConvDPUnit
+from .layers import Conv4layerBlock, ConvDPUnit, get_activation_fn
 
 
+# just apply silu to yuhead
 class Yuhead(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, activation_type='relu'):
         super().__init__()
         assert len(in_channels) == len(out_channels)
         self.head = nn.ModuleList(
-            [Conv4layerBlock(in_c, out_c, withBNRelu=False) for \
+            [Conv4layerBlock(in_c, out_c, withBNRelu=False, activation_type=activation_type) for \
                 in_c, out_c in zip(in_channels, out_channels)]
         )
         self.init_weights()
@@ -139,12 +140,12 @@ class Yuhead_double(nn.Module):
 
 
 class Yuhead_originfpn(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, activation_type='relu'):
         super().__init__()
 
         assert len(in_channels) == len(out_channels)
         self.head = nn.ModuleList(
-            [Conv4layerBlock(in_c, out_c, withBNRelu=False) for \
+            [Conv4layerBlock(in_c, out_c, withBNRelu=False, activation_type=activation_type) for \
                 in_c, out_c in zip(in_channels, out_channels)]
         )
         self.fpn = nn.ModuleList([nn.Sequential(
@@ -154,7 +155,7 @@ class Yuhead_originfpn(nn.Module):
                                             stride=1,
                                             kernel_size=1),
                                 nn.BatchNorm2d(in_c),
-                                nn.ReLU(inplace=True)           
+                                get_activation_fn(activation_type)           
                                 ) for in_c in in_channels])
                 
         self.init_weights()
@@ -190,7 +191,7 @@ class Yuhead_originfpn(nn.Module):
         return outs   
 
 class Yuhead_originfpn_large(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, activation_type='relu'):
         super().__init__()
 
         assert len(in_channels) == len(out_channels)
@@ -205,7 +206,7 @@ class Yuhead_originfpn_large(nn.Module):
                                             stride=1,
                                             kernel_size=1),
                                 nn.BatchNorm2d(in_c),
-                                nn.ReLU(inplace=True)           
+                                get_activation_fn(activation_type)          
                                 ) for in_c in in_channels])
         self.fpn_aft = nn.ModuleList([nn.Sequential(
                                 nn.Conv2d(
@@ -215,7 +216,7 @@ class Yuhead_originfpn_large(nn.Module):
                                             kernel_size=3,
                                             padding=1),
                                 nn.BatchNorm2d(in_c),
-                                nn.ReLU(inplace=True)           
+                                get_activation_fn(activation_type)           
                                 ) for in_c in in_channels])             
         self.init_weights()
         
@@ -251,11 +252,11 @@ class Yuhead_originfpn_large(nn.Module):
 
 
 class Yuhead_naive(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, activation_type='relu'):
         super().__init__()
         assert len(in_channels) == len(out_channels)
         self.head = nn.ModuleList(
-            [Conv4layerBlock(in_c, out_c, withBNRelu=False) for \
+            [Conv4layerBlock(in_c, out_c, withBNRelu=False, activation_type=activation_type) for \
                 in_c, out_c in zip(in_channels, out_channels)]
         )
         self.init_weights()

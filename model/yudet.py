@@ -10,11 +10,12 @@ from .src.utils import decode
 class YuDetectNet(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.backbone = Yunet()
         self.num_classes = cfg['model']['head']['num_classes']
         self.num_landmarks = cfg['model']['head']['num_landmarks']
         self.out_factor = (4 + self.num_landmarks * 2 + self.num_classes + 1)
         self.num_ratio = len(cfg['model']['anchor']['ratio'])
+        self.activation_type = cfg['model'].get('activation_type', 'relu')
+        self.backbone = Yunet(activation_type=self.activation_type)
 
         head_name = cfg['model']['head'].get('type', None)
         if head_name is not None:
@@ -36,7 +37,8 @@ class YuDetectNet(nn.Module):
             head_conv = Yuhead
         self.head = head_conv(
             in_channels=cfg['model']['head']['in_channels'],
-            out_channels=[len(x) * self.out_factor * self.num_ratio for x in cfg['model']['anchor']['min_sizes']]
+            out_channels=[len(x) * self.out_factor * self.num_ratio for x in cfg['model']['anchor']['min_sizes']],
+            activation_type=self.activation_type
         )
 
         self.anchor_generator = PriorBox(
