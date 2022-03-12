@@ -17,6 +17,7 @@ parser.add_argument('--config', '-c', type=str, help='config to test')
 parser.add_argument('--model', '-m', type=str, help='model path to test')
 parser.add_argument('-t', '--target', type=str, help='image/image folder/video path')
 parser.add_argument('--confidence_threshold', type=float, help='confidence threshold to save result')
+parser.add_argument('--device', type=str, default='cuda:0', help='cpu or cuda:0')
 
 def arg_initial(args):
     workfolder = os.path.dirname(os.path.dirname(args.model))
@@ -36,11 +37,11 @@ def arg_initial(args):
     return cfg
 
 
-def detect_image(net, img_path, cfg):
+def detect_image(net, img_path, cfg, device):
     img = cv2.imread(img_path)
 
     t0 = time.time()
-    dets = net.inference(img, scale=1., without_landmarks=False)
+    dets = net.inference(img, scale=1., without_landmarks=False, device=device)
     t1 = time.time()
 
     dets = dets.cpu().numpy()
@@ -60,7 +61,7 @@ def detect_image(net, img_path, cfg):
     print(f'Detect {0 if len(dets.shape) == 1 else dets.shape[0]} target, Save img to {save_path}')
     return t1 - t0
 
-def detect_video(net, video_path, cfg):
+def detect_video(net, video_path, cfg, device):
     cap = cv2.VideoCapture(video_path)
     size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -78,7 +79,7 @@ def detect_video(net, video_path, cfg):
         ret, frame = cap.read()
         if ret:
             t0 = time.time()
-            det = net.inference(frame, scale=1., without_landmarks=False)
+            det = net.inference(frame, scale=1., without_landmarks=False, device=device)
             total_time += time.time() - t0
             num_frames += 1
             det = det.cpu().numpy()            
@@ -107,7 +108,7 @@ def main():
     net = YuDetectNet(cfg)
     net.load_state_dict(torch.load(args.model))
     net.eval()
-    net.cuda()
+    net.to(args.device)
     cudnn.benchmark = True
 
     target = args.target
@@ -127,10 +128,10 @@ def main():
     for img_path in img_paths:
         filename, tp = os.path.splitext(os.path.basename(img_path))
         if tp.lower() in ('.jpg', '.jpeg', '.png'):
-            total_time += detect_image(net, img_path, cfg)
+            total_time += detect_image(net, img_path, cfg, device=args.device)
             num_frames += 1
         elif tp.lower() in ('.mp4'):
-            _total_time, _num_frames = detect_video(net, img_path, cfg)
+            _total_time, _num_frames = detect_video(net, img_path, cfg, device=args.device)
             total_time += _total_time
             num_frames += _num_frames
         else:
