@@ -93,12 +93,12 @@ class YuDetectNet(nn.Module):
         loss_cls_ce *= self.cfg['model']['loss']['weight_cls']
         return (loss_bbox_eiou, loss_iouhead_smoothl1, loss_lm_smoothl1, loss_cls_ce)
 
-    def inference(self, img, scale, without_landmarks=True):
+    def inference(self, img, scale, without_landmarks=True, device='cuda:0'):
         if scale != 1.:
             img = cv2.resize(img, None, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
-        priors = self.get_anchor(img.shape).cuda()
+        priors = self.get_anchor(img.shape).to(device)
         h, w, _ = img.shape    
-        img = torch.from_numpy(img).cuda()
+        img = torch.from_numpy(img).to(device)
         img = img.permute(2, 0, 1).unsqueeze(0)
         img = img.float()
         loc, conf, iou = self(img)
@@ -135,7 +135,7 @@ class YuDetectNet(nn.Module):
             dets = torch.cat([boxes, scores[:, None]], dim=-1)
             dets = dets[:self.cfg['test']['keep_top_k']]
         else:
-            dets = torch.empty((0, box_dim + 1)).cuda()
+            dets = torch.empty((0, box_dim + 1)).to(device)
         return dets
 
     def export_cpp(self, filename):
