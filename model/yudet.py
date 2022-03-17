@@ -93,7 +93,7 @@ class YuDetectNet(nn.Module):
         loss_cls_ce *= self.cfg['model']['loss']['weight_cls']
         return (loss_bbox_eiou, loss_iouhead_smoothl1, loss_lm_smoothl1, loss_cls_ce)
 
-    def inference(self, img, scale, without_landmarks=True, device='gpu:0'):
+    def inference(self, img, scale, without_landmarks=True, device='cuda:0'):
         if scale != 1.:
             img = cv2.resize(img, None, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
         priors = self.get_anchor(img.shape).to(device)

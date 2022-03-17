@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser(description='Face and Landmark Detection')
 parser.add_argument('--config', '-c', type=str, help='config to test')
 parser.add_argument('--model', '-m', type=str, help='model path to test')
 parser.add_argument('--confidence_threshold', type=float, help='confidence threshold to save result')
-parser.add_argument('--device', type=str, default='cuda:0', help='device to inference, cpu or cuda:0')
+parser.add_argument('--device', '-d', type=str, default='cuda:0', help='device to inference, cpu or cuda:0')
 
 
 def arg_initial(args):
@@ -71,7 +71,7 @@ def main():
         available_scales = get_available_scales(img.shape[0], img.shape[1], scales)
         dets = torch.empty((0, 5)).to(args.device)
         for available_scale in available_scales:
-            det = net.inference(img, available_scale)
+            det = net.inference(img, available_scale, device=args.device)
             dets = torch.cat([dets, det[:, [0,1,2,3,-1]]], dim=0)
         results.append({'pred': dets.cpu().numpy(), 'mata': mata})
 
