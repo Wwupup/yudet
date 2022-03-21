@@ -60,6 +60,8 @@ def get_activation_fn(activation_type, inplace=True):
         relu = nn.ReLU(inplace=inplace)
     elif activation_type == "swish":
         relu = nn.SiLU(inplace=inplace)
+    elif activation_type == "hardswish":
+        relu = nn.Hardswish(inplace=inplace)
     else:
         raise ValueError(f'Unknown activation type: {activation_type}')
     return relu
