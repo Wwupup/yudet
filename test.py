@@ -19,7 +19,7 @@ parser.add_argument('--config', '-c', type=str, help='config to test')
 parser.add_argument('--model', '-m', type=str, help='model path to test')
 parser.add_argument('--confidence_threshold', type=float, help='confidence threshold to save result')
 parser.add_argument('--device', '-d', type=str, default='cuda:0', help='device to inference, cpu or cuda:0')
-
+parser.add_argument('--multi-scale', action="store_true", help="multi-scale test")
 
 def arg_initial(args):
     workfolder = os.path.dirname(os.path.dirname(args.model))
@@ -62,13 +62,14 @@ def main():
                 split= cfg['test']['dataset']['split'],
                 root=cfg['test']['dataset']['root']
     )
-    scales = [0.25, 0.50, 0.75, 1.25, 1.50, 1.75, 2.0] if cfg['test']['multi_scale'] else [1.]
+    scales = [0.25, 0.50, 0.75, 1.25, 1.50, 1.75, 2.0] if cfg['test']['multi_scale'] or args.multi_scale else [1.]
     logger.info(f'Performing testing with scales: {str(scales)}, conf_threshold: {cfg["test"]["confidence_threshold"]}')
     results = []
     for idx in tqdm(range(len(testloader))):
     # for idx in range(len(widerface)):
         img, mata = testloader[idx] # img_subpath = '0--Parade/XXX.jpg'
         available_scales = get_available_scales(img.shape[0], img.shape[1], scales)
+        # available_scales = [1.2]
         dets = torch.empty((0, 5)).to(args.device)
         for available_scale in available_scales:
             det = net.inference(img, available_scale, device=args.device)

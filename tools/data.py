@@ -497,7 +497,7 @@ class WIDERFace(data.Dataset):
         return flist, n_imgs
 
     def __getitem__(self, index):
-        img = cv2.imread(self.img_list[index], cv2.IMREAD_COLOR)
+        img = cv2.imread(self.img_list[index])
         event, name = self.img_list[index].split('/')[-2:]
         mata = {}
         mata['event'] = event

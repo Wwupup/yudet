@@ -1,8 +1,8 @@
 #!/usr/bin/bash
 
-target="facetinyfpn480640"
+target="facetinyfpnsize640"
 prefix="/home/ww/projects/yudet/workspace/${target}/weights/"
-python test.py -m ${prefix}${target}_final.pth
+python test.py -m ${prefix}${target}_final.pth -d "cpu"
 
 begin=1000
 end=500

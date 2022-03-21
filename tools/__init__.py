@@ -1,5 +1,3 @@
-from numpy import mod
-from yaml.loader import Loader
 from .data import DaliWiderfaceDataset, WIDERFace, HanCotestloader, CCPDtestloader
 from .log import Logger
 from .widerface_eval.evaluation import evaluation as widerface_evaluation
