@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+from time import time
 import onnx
 import onnxruntime
 import os.path as osp
@@ -116,6 +117,57 @@ def draw(img, bboxes, kpss, out_path):
     print('output:', out_path)
     cv2.imwrite(out_path, img) 
 
+class Timer:
+    def __init__(self) -> None:
+        self.total = 0
+        self.val = 0
+        self.epochs = 0
+        self.istic = False
+    def tic(self):
+        assert not self.istic
+        self.istic = True
+        self.val = time()
+    def toc(self):
+        assert self.istic
+        self.istic = False
+        self.epochs += 1
+        self.total += time() - self.val
+        self.val = 0
+    def total_second(self):
+        return self.total
+    def average_second(self):
+        return self.total / self.epochs
+    def reset(self):
+        self.total = 0
+        self.val = 0
+        self.epochs = 0
+        self.istic = False
+class TimeEngine:
+    def __init__(self):
+        self.container = {}
+    def tic(self, key):
+        if self.container.get(key, None) is None:
+            self.container[key] = Timer()
+        self.container[key].tic()
+    def toc(self, key):
+        assert key in self.container
+        self.container[key].toc()
+    def total_second(self, key=None):
+        if key is None:
+            total_s = 0
+            for k, v in self.container.items():
+                total_s += v.total_second()
+            return total_s
+        else:
+            return self.container[key].total_second()
+    def average_second(self, key):
+        return self.container[key].average_second()
+    def reset(self, key=None):
+        if key:
+            self.container[key].reset()
+        else:
+            self.container = {}
+
 class Detector:
     def __init__(self, model_file=None, nms_thresh=0.5) -> None:
         self.model_file = model_file
@@ -124,6 +176,7 @@ class Detector:
         model = onnx.load(model_file)
         onnx.checker.check_model(model) 
         self.session = onnxruntime.InferenceSession(self.model_file, None)
+        self.time_engine = TimeEngine()
     def preprocess(self, img):
         pass
     def forward(self, img, score_thresh):
@@ -342,26 +395,58 @@ class YUNET(Detector):
     def __init__(self, model_file=None, nms_thresh=0.5) -> None:
         super().__init__(model_file, nms_thresh)
         self.taskname = 'yunet'
-        self.anchor_fn = PriorBox(
-            min_sizes=[[10, 16, 24], [32, 48], [64, 96], [128, 192, 256]],
-            steps=[8, 16, 32, 64],
-            ratio=[1.],
-            clip=False
-        )
-        self.priors_cache = None
-    def preprocess(self, img):
-        pass
+        self.priors_cache = {}
+    def anchor_fn(self, shape):
+        min_sizes_cfg = [[10, 16, 24], [32, 48], [64, 96], [128, 192, 256]]
+        steps = [8, 16, 32, 64]
+        ratio = [1.]
+        clip = False
+
+        feature_map_2th = [int(int((shape[0] + 1) / 2) / 2),
+                        int(int((shape[1] + 1) / 2) / 2)]
+        feature_map_3th = [int(feature_map_2th[0] / 2),
+                                int(feature_map_2th[1] / 2)]
+        feature_map_4th = [int(feature_map_3th[0] / 2),
+                                int(feature_map_3th[1] / 2)]
+        feature_map_5th = [int(feature_map_4th[0] / 2),
+                                int(feature_map_4th[1] / 2)]
+        feature_map_6th = [int(feature_map_5th[0] / 2),
+                                int(feature_map_5th[1] / 2)]
+
+        feature_maps = [feature_map_3th, feature_map_4th,
+                             feature_map_5th, feature_map_6th]
+        anchors = []
+        for k, f in enumerate(feature_maps):
+            min_sizes = min_sizes_cfg[k]
+            for i, j in product(range(f[0]), range(f[1])):
+                for min_size in min_sizes:
+                    cx = (j + 0.5) * steps[k] / shape[1]
+                    cy = (i + 0.5) * steps[k] / shape[0]
+                    for r in ratio:
+                        s_ky = min_size / shape[0]
+                        s_kx = r * min_size / shape[1]
+                        anchors += [cx, cy, s_kx, s_ky]
+        # back to torch land
+        output = np.array(anchors).reshape(-1, 4)
+        if clip:
+            output.clip(max=1, min=0)
+        return output
     def forward(self, img, score_thresh, priors):
-        t1 = datetime.now()
+        self.time_engine.tic('forward_calc')
         img = img.astype(np.float32)
         img = np.transpose(img[None, ...], [0, 3, 1, 2]).copy()
-        outs = self.session.run(None, {self.session.get_inputs()[0].name: img})
-        loc, conf, iou = outs
+        self.time_engine.toc('forward_calc')
+
+        self.time_engine.tic('forward_run')
+        loc, conf, iou = self.session.run(None, {self.session.get_inputs()[0].name: img})
+        self.time_engine.toc('forward_run')
+        
+        self.time_engine.tic('forward_calc')
         conf = softmax(conf.squeeze(0))
         boxes = self.decode(loc.squeeze(0), priors, variances=[0.1, 0.2])
         _, _, h, w = img.shape
-        boxes[:, 0::2] = boxes[:, 0::2] * w
-        boxes[:, 1::2] = boxes[:, 1::2] * h
+        boxes[:, 0::2] *= w
+        boxes[:, 1::2] *= h
         cls_scores = conf[:, 1]
         iou_scores = iou.squeeze(0)[:, 0]
         iou_scores = np.clip(iou_scores, a_min=0., a_max=1.)
@@ -369,25 +454,29 @@ class YUNET(Detector):
         score_mask = scores > score_thresh
         boxes = boxes[score_mask]
         scores = scores[score_mask]
-        return boxes, scores, datetime.now() - t1
+        self.time_engine.toc('forward_calc')
+        return boxes, scores
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN"):
+        self.time_engine.tic('preprocess')
         det_img, det_scale = resize_img(img, mode)
-        if mode == "ORIGIN" or mode == "AUTO":
-            priors = self.anchor_fn(det_img.shape[:2]).numpy()
+        if self.priors_cache.get(det_img.shape[:2], None) is None:
+            priors = self.anchor_fn(det_img.shape[:2])
+            self.priors_cache[det_img.shape[:2]] = priors
         else:
+            priors = self.priors_cache[det_img.shape[:2]]
+        self.time_engine.toc('preprocess')
 
-            if self.priors_cache is None:
-                self.priors_cache = self.anchor_fn(det_img.shape[:2]).numpy()
-            priors = self.priors_cache
-
-        bboxes, scores, t_forward = self.forward(det_img, score_thresh, priors)
+        bboxes, scores = self.forward(det_img, score_thresh, priors)
+        
+        self.time_engine.tic('postprocess')
         bboxes /= det_scale
         pre_det = np.hstack((bboxes[:, :4], scores[:, None]))
         keep = nms(pre_det, self.nms_thresh)
         kpss = bboxes[keep, 4:]
         bboxes = pre_det[keep, :]
-        return bboxes, kpss, t_forward
+        self.time_engine.toc('postprocess')
+        return bboxes, kpss
 
         
     def decode(self, loc, priors, variances):
@@ -453,7 +542,7 @@ class RETINAFACE(Detector):
     def __init__(self, model_file=None, nms_thresh=0.5) -> None:
         super().__init__(model_file, nms_thresh)
         self.priors_cache = None
-
+        self.taskname = 'retinaface'
     def anchor_fn(self, shape):
         min_sizes_cfg = [[16, 32], [64, 128], [256, 512]]
         steps = [8, 16, 32]
@@ -539,12 +628,11 @@ class RETINAFACE(Detector):
         bboxes = pre_det[keep, :]
         return bboxes, kpss, t_forward
 
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description='inference by ONNX')
     # for debug
-    # parser.add_argument('--model_file', help='onnx model file path', default='/home/ww/projects/yudet/workspace/onnx/retinaface_mbnet0.25.onnx')
+    # parser.add_argument('--model_file', help='onnx model file path', default='/home/ww/projects/yudet/workspace/onnx/yunet_320_640_tinyfpn_dynamic.onnx')
     # parser.add_argument('--eval', default=True, help='eval on widerface')
 
     parser.add_argument('model_file', help='onnx model file path')
@@ -552,6 +640,7 @@ def parse_args():
     parser.add_argument('--mode', type=str, default='ORIGIN', help='img scale. (640, 640) for VGA, choice=[VGA, ORIGIN, "number,number"]')
     parser.add_argument('--image', type=str, default='/home/ww/projects/yudet/data/widerface/WIDER_test/images/0--Parade/0_Parade_marchingband_1_9.jpg', help='image to detect')
     parser.add_argument('--nms_thresh', type=float, default=0.35, help='tresh to nms')
+    parser.add_argument('--score_thresh', type=float, default=0.35, help='tresh to score filter')
 
     args = parser.parse_args()
     return args
@@ -598,19 +687,21 @@ if __name__ == "__main__":
                     iou_tresh=0.5,
                     split=split)
 
+
     else:
         img = cv2.imread(args.image)
-        epoch = 10
-        cost_forward = 0
-        for _ in range(epoch):        
-            bboxes, kpss, _ = detector.detect(img, score_thresh=0.3, mode=args.mode)
-        ta = datetime.now()
-        for _ in range(epoch):        
-            bboxes, kpss, t_forward = detector.detect(img, score_thresh=0.3, mode=args.mode)
-            cost_forward += t_forward.total_seconds()
-        tb = datetime.now()
-        print('all cost:', (tb-ta).total_seconds()*1000 / epoch)
-        print('forward cost:', cost_forward*1000 / epoch)
+        warm_epochs = 10
+        for _ in range(warm_epochs):        
+            bboxes, kpss = detector.detect(img, score_thresh=0.3, mode=args.mode)
+        detector.time_engine.reset()
+        run_epochs = 500
+        for _ in range(run_epochs):        
+            bboxes, kpss = detector.detect(img, score_thresh=0.3, mode=args.mode)
+        print(f'Warm up in {warm_epochs} epochs, test in {run_epochs} epochs:')
+        for k, v in detector.time_engine.container.items():
+            print(f'{k} : {v.total_second() / run_epochs}')
+        print(f'Total: {detector.time_engine.total_second() / run_epochs}')
+        print(f'FPS: {run_epochs / detector.time_engine.total_second()}')
 
         draw(img, bboxes, kpss, out_path='./images/' + prefix + "_" + args.mode + osp.basename(args.image))
 

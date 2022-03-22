@@ -10,8 +10,93 @@ import torch
 from model.yudet import YuDetectNet
 import yaml
 
+def nms(self, dets):
+    thresh = self.nms_thresh
+    x1 = dets[:, 0]
+    y1 = dets[:, 1]
+    x2 = dets[:, 2]
+    y2 = dets[:, 3]
+    scores = dets[:, 4]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= thresh)[0]
+        order = order[inds + 1]
+
+    return keep
+
+def decode_numpy(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    """
+    
+    boxes = loc.copy()
+    boxes[:, 0:2] = priors[:, 0:2] + boxes[:, 0:2] * variances[0] * priors[:, 2:4]
+    boxes[:, 2:4] = priors[:, 2:4] * np.exp(boxes[:, 2:4] * variances[1])
+    boxes[:, 0:2] -= boxes[:, 2:4] / 2
+    boxes[:, 2:4] += boxes[:, 0:2]
+    
+    # landmarks
+    if loc.shape[-1] > 4:
+        boxes[:, 4::2] = priors[:, None, 0] + boxes[:, 4::2] * variances[0] * priors[:, None, 2]
+        boxes[:, 5::2] = priors[:, None, 1] + boxes[:, 5::2] * variances[0] * priors[:, None, 3]
+    return boxes
+
+def to_numpy(tensor): 
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+def softmax(x):
+    """Compute the softmax in a numerically stable way."""
+    x = x - np.max(x)
+    exp_x = np.exp(x)
+    softmax_x = exp_x / np.sum(exp_x, axis=-1).reshape(-1, 1)
+    return softmax_x
+def nms(dets, scores, thresh):
+    x1 = dets[:, 0]
+    y1 = dets[:, 1]
+    x2 = dets[:, 2]
+    y2 = dets[:, 3]
+    # scores = dets[:, 4]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= thresh)[0]
+        order = order[inds + 1]
+
+    return keep
 #inference for default config/yufacedet.yaml
 def inference(outs, img, anchor_fn):
+    use_opencv_nms = False
     variances = [0.1, 0.2]
     box_dim = 4 #14 if with landmark else 4
     confidence_threshold = 0.3
@@ -19,8 +104,6 @@ def inference(outs, img, anchor_fn):
     top_k = 5000
     keep_topk = 750
 
-
- 
     priors = anchor_fn(img.shape[:2])
     # conf = softmax(conf.squeeze(0))
     t1 = time()
@@ -38,19 +121,26 @@ def inference(outs, img, anchor_fn):
     score_mask = scores > confidence_threshold
     boxes = boxes[score_mask]
     scores = scores[score_mask]
-    _boxes = boxes[:, :4].copy()
-    _boxes[:, 2] = boxes[:, 2] - boxes[:, 0]
-    _boxes[:, 3] = boxes[:, 3] - boxes[:, 1]
-    keep_idx = cv2.dnn.NMSBoxes(
-                bboxes=_boxes.tolist(), 
-                scores=scores.tolist(), 
-                score_threshold=confidence_threshold, 
-                nms_threshold=nms_threshold,
-                eta=1, 
-                top_k=top_k
-    )
-    if len(keep_idx) > 0:
+
+    if use_opencv_nms:
+        _boxes = boxes[:, :4].copy()
+        _boxes[:, 2] = boxes[:, 2] - boxes[:, 0]
+        _boxes[:, 3] = boxes[:, 3] - boxes[:, 1]
+        keep_idx = cv2.dnn.NMSBoxes(
+                    bboxes=_boxes.tolist(), 
+                    scores=scores.tolist(), 
+                    score_threshold=confidence_threshold, 
+                    nms_threshold=nms_threshold,
+                    eta=1, 
+                    top_k=top_k
+        )
         keep_idx = keep_idx.reshape(-1)
+    else:
+        keep_idx = nms(boxes[:, :4], scores, thresh=nms_threshold)
+
+
+
+    if len(keep_idx) > 0:
         boxes = boxes[keep_idx]
         scores = scores[keep_idx]
         dets = np.concatenate([boxes, scores[:, None]], axis=-1)
@@ -80,32 +170,6 @@ def preprocess(img):
     input = np.transpose(input[None, ...], [0, 3, 1, 2]).copy()
     return input
 
-def decode_numpy(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    """
-    
-    boxes = loc.copy()
-    boxes[:, 0:2] = priors[:, 0:2] + boxes[:, 0:2] * variances[0] * priors[:, 2:4]
-    boxes[:, 2:4] = priors[:, 2:4] * np.exp(boxes[:, 2:4] * variances[1])
-    boxes[:, 0:2] -= boxes[:, 2:4] / 2
-    boxes[:, 2:4] += boxes[:, 0:2]
-    
-    # landmarks
-    if loc.shape[-1] > 4:
-        boxes[:, 4::2] = priors[:, None, 0] + boxes[:, 4::2] * variances[0] * priors[:, None, 2]
-        boxes[:, 5::2] = priors[:, None, 1] + boxes[:, 5::2] * variances[0] * priors[:, None, 3]
-    return boxes
-
-def to_numpy(tensor): 
-    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
-
-def softmax(x):
-    """Compute the softmax in a numerically stable way."""
-    x = x - np.max(x)
-    exp_x = np.exp(x)
-    softmax_x = exp_x / np.sum(exp_x, axis=-1).reshape(-1, 1)
-    return softmax_x
 
 def draw_image(dets, img):
     scores = dets[:, -1]
@@ -119,9 +183,11 @@ def draw_image(dets, img):
     return img
 
 
+
+
 def main():
-    img_path = "/home/ww/projects/yudet/data/widerface/WIDER_test/images/6--Funeral/6_Funeral_Funeral_6_17.jpg"
-    onnx_path = "/home/ww/projects/yudet/workspace/onnx/best_rebuild_dynamic.onnx"
+    img_path = "/home/ww/projects/yudet/data/widerface/WIDER_test/images/0--Parade/0_Parade_marchingband_1_9.jpg"
+    onnx_path = '/home/ww/projects/yudet/workspace/onnx/yunet_320_640_tinyfpn_dynamic.onnx'
     config_path = '/home/ww/projects/yudet/workspace/facenvive/yufacedet.yaml'
     model_path = '/home/ww/projects/yudet/workspace/facenvive/weights/best_rebuild.pth'
     anchor_fn = PriorBox(
@@ -130,34 +196,31 @@ def main():
         ratio=[1.],
         clip=False
     )
-    img = cv2.imread(img_path)
-    img = cv2.resize(img, (480, 640))
-    input = preprocess(img)
+    ort_session = load_onnx(onnx_path)    
+
 
     # onnx inference
-    ort_session = load_onnx(onnx_path)
-    ort_inputs = {ort_session.get_inputs()[0].name: input}
+    img_ori = cv2.imread(img_path)
+    # img = cv2.resize(img_ori, (640, 480))
+    # input = preprocess(img)
+    # ort_inputs = {ort_session.get_inputs()[0].name: input}
 
-
-    # pytorch inference
-    # torch_session = load_pytorch_model(config_path, model_path)
-    # outs_torch = torch_session(torch.from_numpy(input))
-
-    # np.testing.assert_allclose(to_numpy(outs_torch), outs, rtol=1e-03, atol=1e-05)
-
-    epoch = 1000
-    a, b = 0, 0
+    epoch = 500
+    a, b = 0., 0.
     for _ in range(epoch):
         t1 = time()
+        img = cv2.resize(img_ori, (640, 480))
+        input = preprocess(img)
+        ort_inputs = {ort_session.get_inputs()[0].name: input}
         outs = ort_session.run(None, ort_inputs)
         a += time() - t1
         dets, t3 = inference(outs, img, anchor_fn)
         b += t3
-    print(f'Shape: {img.shape} Epoch 1000:')
-    print(f"Forward time / Postprocess Time = {a / b}")
-    print(f"Forward time / Total Time = {a / (a + b)}")
-    print(f"Postprocess time / Total Time = {b / (a + b)}")
-    print(f'Total Time: {a + b}s, achieve {epoch / (a + b)} fps')
+    print(f'Shape: {img.shape} Epoch {epoch}:')
+    print(f"Forward time / Postprocess Time = {a / b} s")
+    print(f"Forward time / Total Time = {a / (a + b)} s")
+    print(f"Postprocess time / Total Time = {b / (a + b)} s")
+    print(f'Total Time: {a + b}s, Average time: {(a + b) / epoch} achieve {epoch / (a + b)} fps')
     print(f'Forward achieve {epoch / a} fps')
     print(f'Postprocess achieve {epoch / b} fps')
 
