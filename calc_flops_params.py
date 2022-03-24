@@ -23,7 +23,7 @@ def main():
     cfg = arg_initial(args)
     net = YuDetectNet(cfg).cuda()
     print("Torchinfo:")
-    print(summary(net, (1, 3, 320, 320),col_names=["kernel_size", "output_size", "num_params", "mult_adds"],))
+    print(summary(net, (1, 3, 640, 640),col_names=["kernel_size", "output_size", "num_params", "mult_adds"],))
     # print('Torchstat:')
     # stat(net,(3,320,320))
 

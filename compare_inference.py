@@ -7,7 +7,6 @@ import os.path as osp
 import cv2
 import numpy as np
 from tqdm import tqdm
-from model.nets.layers import PriorBox 
 from math import ceil
 from itertools import product as product
 
@@ -278,14 +277,20 @@ class SCRFD(Detector):
         return np.stack(preds, axis=-1)    
 
     def forward(self, img, score_thresh):
+        self.time_engine.tic('forward_calc')
         scores_list = []
         bboxes_list = []
         kpss_list = []
         t1 = datetime.now()
         input_size = tuple(img.shape[0:2][::-1])
         blob = cv2.dnn.blobFromImage(img, 1.0/128, input_size, (127.5, 127.5, 127.5), swapRB=True)
-        net_outs = self.session.run(self.output_names, {self.input_name : blob})
+        self.time_engine.toc('forward_calc')
 
+        self.time_engine.tic('forward_run')
+        net_outs = self.session.run(self.output_names, {self.input_name : blob})
+        self.time_engine.toc('forward_run')
+
+        self.time_engine.tic('forward_calc')
         input_height = blob.shape[2]
         input_width = blob.shape[3]
         fmc = self.fmc
@@ -347,14 +352,18 @@ class SCRFD(Detector):
                 kpss = kpss.reshape( (kpss.shape[0], -1, 2) )
                 pos_kpss = kpss[pos_inds]
                 kpss_list.append(pos_kpss)
-        return scores_list, bboxes_list, kpss_list, datetime.now() - t1
+
+        self.time_engine.toc('forward_calc')
+        return scores_list, bboxes_list, kpss_list
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN", max_num=0, metric='default'):
-
+        self.time_engine.tic('preprocess')
         det_img, det_scale = resize_img(img, mode)
+        self.time_engine.toc('preprocess')
 
-        scores_list, bboxes_list, kpss_list, t_forward = self.forward(det_img, score_thresh)
+        scores_list, bboxes_list, kpss_list = self.forward(det_img, score_thresh)
 
+        self.time_engine.tic('postprocess')
         scores = np.vstack(scores_list)
         # scores_ravel = scores.ravel()
         # order = scores_ravel.argsort()[::-1]
@@ -389,7 +398,9 @@ class SCRFD(Detector):
             det = det[bindex, :]
             if kpss is not None:
                 kpss = kpss[bindex, :]
-        return det, kpss, t_forward
+
+        self.time_engine.toc('postprocess')
+        return det, kpss
 
 class YUNET(Detector):
     def __init__(self, model_file=None, nms_thresh=0.5) -> None:
@@ -470,11 +481,22 @@ class YUNET(Detector):
         bboxes, scores = self.forward(det_img, score_thresh, priors)
         
         self.time_engine.tic('postprocess')
+        self.time_engine.tic('postprocess_1')
         bboxes /= det_scale
+        self.time_engine.toc('postprocess_1')
+        self.time_engine.tic('postprocess_2')
         pre_det = np.hstack((bboxes[:, :4], scores[:, None]))
+        self.time_engine.toc('postprocess_2')
+        self.time_engine.tic('postprocess_3')
         keep = nms(pre_det, self.nms_thresh)
+        self.time_engine.toc('postprocess_3')
+        self.time_engine.tic('postprocess_4')
+
         kpss = bboxes[keep, 4:]
+        self.time_engine.toc('postprocess_4')
+        self.time_engine.tic('postprocess_5')
         bboxes = pre_det[keep, :]
+        self.time_engine.toc('postprocess_5')
         self.time_engine.toc('postprocess')
         return bboxes, kpss
 
@@ -500,11 +522,17 @@ class YOLO5FACE(Detector):
         super().__init__(model_file, nms_thresh)
 
     def forward(self, img, score_thresh):
-        t1 = datetime.now()
+        self.time_engine.tic('forward_calc')
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = np.transpose(img[None, ...], [0, 3, 1, 2]).copy().astype(np.float32)
         img /= 255.
+        self.time_engine.toc('forward_calc')
+
+        self.time_engine.tic('forward_run')
         outs = self.session.run(None, {self.session.get_inputs()[0].name: img})[0]
+        self.time_engine.toc('forward_run')
+
+        self.time_engine.tic('forward_calc')
         outs = outs.squeeze(0)
         scores_mask = outs[:, 4] > score_thresh  # candidates
         outs = outs[scores_mask]
@@ -522,21 +550,27 @@ class YOLO5FACE(Detector):
 
         boxes = np.hstack((box, outs[:, 5:-1]))
         scores = outs[:, -1]
-        # dets = np.concatenate((box, outs[:, 5:], ), 1)
-        return boxes, scores, datetime.now() - t1
+        self.time_engine.toc('forward_calc')
+        return boxes, scores
 
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN"):
+        self.time_engine.tic('preprocess')
         assert mode == 'VGA' or mode == "640,640"
         det_img, det_scale = resize_img(img, mode)
+        self.time_engine.toc('preprocess')
         
-        bboxes, scores, t_forward = self.forward(det_img, score_thresh)
+        bboxes, scores = self.forward(det_img, score_thresh)
+
+        self.time_engine.tic('postprocess')
         bboxes /= det_scale 
         pre_det = np.hstack((bboxes[:, :4], scores[:, None]))
         keep = nms(pre_det, self.nms_thresh)       
         kpss = bboxes[keep, 4:]
         bboxes = pre_det[keep, :]
-        return bboxes, kpss, t_forward
+        self.time_engine.toc('postprocess')
+
+        return bboxes, kpss
 
 class RETINAFACE(Detector):
     def __init__(self, model_file=None, nms_thresh=0.5) -> None:
@@ -586,13 +620,17 @@ class RETINAFACE(Detector):
         return landms
 
     def forward(self, img, score_thresh, priors):
-        t1 = datetime.now()
+        self.time_engine.tic('forward_calc')
         img = img.astype(np.float32)
         img -= (104, 117, 123)
         img = np.transpose(img[None, ...], [0, 3, 1, 2]).copy()
-        outs = self.session.run(None, {self.session.get_inputs()[0].name: img})
-        loc, conf, landms = outs
+        self.time_engine.toc('forward_calc')
 
+        self.time_engine.tic('forward_run')
+        loc, conf, landms = self.session.run(None, {self.session.get_inputs()[0].name: img})
+        self.time_engine.toc('forward_run')
+
+        self.time_engine.tic('forward_calc')
         scores = conf.squeeze(0)[:, 1]
         boxes = self.decode(loc.squeeze(0), priors, variances=[0.1, 0.2])
         landms = self.decode_landms(landms.squeeze(0), priors, variances=[0.1, 0.2])
@@ -607,10 +645,11 @@ class RETINAFACE(Detector):
         score_mask = scores > score_thresh
         boxes = boxes[score_mask]
         scores = scores[score_mask]
-        return boxes, scores, datetime.now() - t1
+        self.time_engine.toc('forward_calc')
+        return boxes, scores
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN"):
-        
+        self.time_engine.tic('preprocess')
         det_img, det_scale = resize_img(img, mode)
         if mode == "ORIGIN" or mode == "AUTO":
             priors = self.anchor_fn(det_img.shape[:2])
@@ -619,14 +658,18 @@ class RETINAFACE(Detector):
             if self.priors_cache is None:
                 self.priors_cache = self.anchor_fn(det_img.shape[:2])
             priors = self.priors_cache
+        self.time_engine.toc('preprocess')
 
-        bboxes, scores, t_forward = self.forward(det_img, score_thresh, priors)
+        bboxes, scores = self.forward(det_img, score_thresh, priors)
+
+        self.time_engine.tic('postprocess')
         bboxes /= det_scale
         pre_det = np.hstack((bboxes[:, :4], scores[:, None]))
         keep = nms(pre_det, self.nms_thresh)
         kpss = bboxes[keep, 4:]
         bboxes = pre_det[keep, :]
-        return bboxes, kpss, t_forward
+        self.time_engine.toc('postprocess')
+        return bboxes, kpss
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -677,12 +720,19 @@ if __name__ == "__main__":
         results = []
         for idx in tqdm(range(len(testloader))):
             img, mata = testloader[idx]
-            bboxes, kpss, _ = detector.detect(img, score_thresh=0.02, mode=args.mode)#score_thresh=0.02 get the best mAP
+            bboxes, kpss= detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)#score_thresh=0.02 get the best mAP
             results.append({'pred': bboxes, 'mata': mata})
+
+        run_epochs = detector.time_engine.container.get("forward_run").epochs
+        print(f'Eval in {run_epochs}:')
+        for k, v in detector.time_engine.container.items():
+            print(f'{k} : {v.total_second() / run_epochs}')
+        print(f'Total: {detector.time_engine.total_second() / run_epochs}')
+        print(f'FPS: {run_epochs / detector.time_engine.total_second()}')
 
         evaluation(mode='widerface',
                     results=results,
-                    results_save_dir='./images/results',
+                    results_save_dir=f'./images/{prefix}_nms_{args.nms_thresh}_score_{args.score_thresh}_results',
                     gt_root=osp.join(widerface_root, 'ground_truth'),
                     iou_tresh=0.5,
                     split=split)
@@ -692,11 +742,11 @@ if __name__ == "__main__":
         img = cv2.imread(args.image)
         warm_epochs = 10
         for _ in range(warm_epochs):        
-            bboxes, kpss = detector.detect(img, score_thresh=0.3, mode=args.mode)
+            bboxes, kpss = detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)
         detector.time_engine.reset()
         run_epochs = 500
         for _ in range(run_epochs):        
-            bboxes, kpss = detector.detect(img, score_thresh=0.3, mode=args.mode)
+            bboxes, kpss = detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)
         print(f'Warm up in {warm_epochs} epochs, test in {run_epochs} epochs:')
         for k, v in detector.time_engine.container.items():
             print(f'{k} : {v.total_second() / run_epochs}')
