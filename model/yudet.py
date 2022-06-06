@@ -3,7 +3,7 @@ import torch.nn as nn
 import cv2
 from .nets.layers import PriorBox
 from .nets.yunet import Yunet
-from .nets.yuhead import Yuhead, Yuhead_PAN, Yuhead_double, Yuhead_naive, Yuhead_originfpn, Yuhead_originfpn_large
+from .nets.yuhead import build_head
 from .losses.multiboxloss import MultiBoxLoss
 from .src.utils import decode
 
@@ -15,31 +15,16 @@ class YuDetectNet(nn.Module):
         self.out_factor = (4 + self.num_landmarks * 2 + self.num_classes + 1)
         self.num_ratio = len(cfg['model']['anchor']['ratio'])
         self.activation_type = cfg['model'].get('activation_type', 'relu')
-        self.backbone = Yunet(activation_type=self.activation_type)
+        self.backbone = Yunet(
+            cfg_layers=cfg['model']['backbone']['layers'],
+            activation_type=self.activation_type)
 
-        head_name = cfg['model']['head'].get('type', None)
-        if head_name is not None:
-            if head_name.lower() == 'yuhead':
-                head_conv = Yuhead
-            elif head_name.lower() == 'yuhead_pan':
-                head_conv = Yuhead_PAN
-            elif head_name.lower() == 'yuhead_double':
-                head_conv = Yuhead_double
-            elif head_name.lower() == 'yuhead_originfpn':
-                head_conv = Yuhead_originfpn
-            elif head_name.lower() == 'yuhead_originfpn_large':
-                head_conv = Yuhead_originfpn_large 
-            elif head_name.lower() == 'yuhead_naive':
-                head_conv = Yuhead_naive
-            else:
-                raise ImportError(f"No head name {head_name}")
-        else:
-            head_conv = Yuhead
-        self.head = head_conv(
+        self.head = build_head(
+            name=cfg['model']['head'].get('type', None),
             in_channels=cfg['model']['head']['in_channels'],
             out_channels=[len(x) * self.out_factor * self.num_ratio for x in cfg['model']['anchor']['min_sizes']],
-            activation_type=self.activation_type
-        )
+            activation_type=self.activation_type 
+        ) 
 
         self.anchor_generator = PriorBox(
             min_sizes=cfg['model']['anchor']['min_sizes'],
@@ -160,18 +145,21 @@ class YuDetectNet(nn.Module):
 
         # convert to a string
         num_conv = len(DPConvs)
-
         # the first conv_head layer
         # result_str += convert_param2string(combine_conv_bn(DPConvs[0], self.model0.bn1), 'f0', False, True)
         # result_str += DPConvs[0].convert_to_cppstring()
         # the rest depthwise+pointwise conv layers
-        for idx in range(0, num_conv):
-            rs = DPConvs[idx].convert_to_cppstring('f' + str(idx))
+        result_str += DPConvs[0].convert_to_cppstring('f')
+        for idx in range(1, num_conv):
+            rs = DPConvs[idx].convert_to_cppstring('f' + str(idx + 1))
             result_str += rs
             result_str += '\n'
 
-        result_str += 'ConvInfoStruct param_pConvInfo[' + str(num_conv*2 - 1) + '] = { \n'
-        result_str += '   {32, ' + str(DPConvs[0].out_channels) +', false, true, true, f0_weight, f0_bias},\n'
+        result_str += 'ConvInfoStruct param_pConvInfo[' + str(num_conv*2 + 1) + '] = { \n'
+
+        result_str += '   {32, ' + str(DPConvs[0].conv1.out_channels) +', false, true, true, f0_weight, f0_bias},\n'
+        result_str += '   {'+ str(DPConvs[0].conv2.in_channels) + ', ' + str(DPConvs[0].conv2.out_channels) +', false, true, false, f1_1_weight, f1_1_bias},\n'
+        result_str += '   {'+ str(DPConvs[0].conv2.out_channels) + ', ' + str(DPConvs[0].conv2.out_channels) +', true, false, true, f1_2_weight, f1_2_bias},\n'
         
         for idx in range(1, num_conv):
             result_str += ('    {' +
@@ -180,8 +168,8 @@ class YuDetectNet(nn.Module):
                            'false, ' + # is_depthwise 
                            'true, ' + # is_pointwise
                            'false, ' + # with_relu
-                           'f' + str(idx) + '_1_weight' + ', ' +
-                           'f' + str(idx) + '_1_bias' +
+                           'f' + str(idx + 1) + '_1_weight' + ', ' +
+                           'f' + str(idx + 1) + '_1_bias' +
                            '}')
 
             result_str += ','
@@ -197,8 +185,8 @@ class YuDetectNet(nn.Module):
                            'true, ' + # is_depthwise 
                            'false, ' + # is_pointwise
                            with_relu + # with_relu
-                           'f' + str(idx) + '_2_weight' + ', ' +
-                           'f' + str(idx) + '_2_bias' +
+                           'f' + str(idx + 1) + '_2_weight' + ', ' +
+                           'f' + str(idx + 1) + '_2_bias' +
                            '}')
 
             if (idx < num_conv - 1):

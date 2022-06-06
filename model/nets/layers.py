@@ -1,5 +1,4 @@
 import torch.nn as nn
-import torch.nn.functional as F
 import torch
 import numpy as np
 
@@ -114,9 +113,9 @@ class Conv_head(nn.Module):
         return x
 
     def convert_to_cppstring(self, varname):
-       rs1 = convert_param2string(combine_conv_bn(self.conv1, self.bn1), varname, False, True)
-       rs2 = self.conv2.convert_to_cppstring(varname)
-       return rs1 + rs2
+       rs1 = convert_param2string(combine_conv_bn(self.conv1, self.bn1), varname + '0', False, True)
+       rs2 = self.conv2.convert_to_cppstring(varname + '1')
+       return rs1 + rs2 + '\n'
 
 class Conv4layerBlock(nn.Module):
     def __init__(self, in_channels, out_channels, withBNRelu=True, activation_type='relu'):

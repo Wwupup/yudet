@@ -21,9 +21,11 @@ parser.add_argument('--device', type=str, default='cuda:0', help='cpu or cuda:0'
 
 def arg_initial(args):
     workfolder = os.path.dirname(os.path.dirname(args.model))
-    cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
-    assert len(cfg_list) == 1, 'Can`t comfire config file!'
-    with open(cfg_list[0], mode='r', encoding='utf-8') as f:
+    if args.config is None:
+        cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
+        assert len(cfg_list) == 1, 'Can`t comfire config file!'
+        args.config = cfg_list[0]
+    with open(args.config, mode='r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     save_dir = os.path.join(workfolder, 'detect_results')
     if not os.path.exists(save_dir):

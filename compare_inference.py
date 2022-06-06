@@ -123,6 +123,7 @@ class Timer:
         self.val = 0
         self.epochs = 0
         self.istic = False
+        self.mode = 's'
     def tic(self):
         assert not self.istic
         self.istic = True
@@ -142,6 +143,12 @@ class Timer:
         self.val = 0
         self.epochs = 0
         self.istic = False
+    def set_mode(self, mode='s'):
+        assert mode in ('s', 'ms')
+        if mode == 's' and self.mode == 'ms':
+            self.total /= 1000.
+        elif mode == 'ms' and self.mode == 's':
+            self.total *= 1000.
 class TimeEngine:
     def __init__(self):
         self.container = {}
@@ -167,7 +174,9 @@ class TimeEngine:
             self.container[key].reset()
         else:
             self.container = {}
-
+    def set_mode(self, mode='s'):
+        for k, v in self.container.items():
+            v.set_mode(mode)
 class Detector:
     def __init__(self, model_file=None, nms_thresh=0.5) -> None:
         self.model_file = model_file
@@ -282,7 +291,6 @@ class SCRFD(Detector):
         scores_list = []
         bboxes_list = []
         kpss_list = []
-        t1 = datetime.now()
         input_size = tuple(img.shape[0:2][::-1])
         blob = cv2.dnn.blobFromImage(img, 1.0/128, input_size, (127.5, 127.5, 127.5), swapRB=True)
         self.time_engine.toc('forward_calc')
@@ -291,7 +299,7 @@ class SCRFD(Detector):
         net_outs = self.session.run(self.output_names, {self.input_name : blob})
         self.time_engine.toc('forward_run')
 
-        self.time_engine.tic('forward_calc')
+        self.time_engine.tic('forward_calc_1')
         input_height = blob.shape[2]
         input_width = blob.shape[3]
         fmc = self.fmc
@@ -354,7 +362,7 @@ class SCRFD(Detector):
                 pos_kpss = kpss[pos_inds]
                 kpss_list.append(pos_kpss)
 
-        self.time_engine.toc('forward_calc')
+        self.time_engine.toc('forward_calc_1')
         return scores_list, bboxes_list, kpss_list
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN", max_num=0, metric='default'):
@@ -445,28 +453,41 @@ class YUNET(Detector):
         return output
     def forward(self, img, score_thresh, priors):
         self.time_engine.tic('forward_calc')
-        img = img.astype(np.float32)
-        img = np.transpose(img[None, ...], [0, 3, 1, 2]).copy()
+        img = np.transpose(img, [2, 0, 1]).astype(np.float32)[np.newaxis, ...].copy()
         self.time_engine.toc('forward_calc')
 
         self.time_engine.tic('forward_run')
         loc, conf, iou = self.session.run(None, {self.session.get_inputs()[0].name: img})
         self.time_engine.toc('forward_run')
         
-        self.time_engine.tic('forward_calc')
+        # self.time_engine.tic('forward_calc')
+        self.time_engine.tic('forward_calc_softmax')
         conf = softmax(conf.squeeze(0))
+        self.time_engine.toc('forward_calc_softmax')
+
+        self.time_engine.tic('forward_calc_decode')
         boxes = self.decode(loc.squeeze(0), priors, variances=[0.1, 0.2])
+        self.time_engine.toc('forward_calc_decode')
+
+        self.time_engine.tic('forward_calc_norm')
         _, _, h, w = img.shape
         boxes[:, 0::2] *= w
         boxes[:, 1::2] *= h
+        self.time_engine.toc('forward_calc_norm')
+
+        self.time_engine.tic('forward_calc_score')
         cls_scores = conf[:, 1]
         iou_scores = iou.squeeze(0)[:, 0]
         iou_scores = np.clip(iou_scores, a_min=0., a_max=1.)
         scores = np.sqrt(cls_scores * iou_scores)
+        self.time_engine.toc('forward_calc_score')
+
+        self.time_engine.tic('forward_calc_mask')
         score_mask = scores > score_thresh
         boxes = boxes[score_mask]
         scores = scores[score_mask]
-        self.time_engine.toc('forward_calc')
+        self.time_engine.toc('forward_calc_mask')
+        # self.time_engine.toc('forward_calc')
         return boxes, scores
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN"):
@@ -482,22 +503,12 @@ class YUNET(Detector):
         bboxes, scores = self.forward(det_img, score_thresh, priors)
         
         self.time_engine.tic('postprocess')
-        self.time_engine.tic('postprocess_1')
         bboxes /= det_scale
-        self.time_engine.toc('postprocess_1')
-        self.time_engine.tic('postprocess_2')
         pre_det = np.hstack((bboxes[:, :4], scores[:, None]))
-        self.time_engine.toc('postprocess_2')
-        self.time_engine.tic('postprocess_3')
         keep = nms(pre_det, self.nms_thresh)
-        self.time_engine.toc('postprocess_3')
-        self.time_engine.tic('postprocess_4')
 
         kpss = bboxes[keep, 4:]
-        self.time_engine.toc('postprocess_4')
-        self.time_engine.tic('postprocess_5')
         bboxes = pre_det[keep, :]
-        self.time_engine.toc('postprocess_5')
         self.time_engine.toc('postprocess')
         return bboxes, kpss
 
@@ -505,13 +516,16 @@ class YUNET(Detector):
     def decode(self, loc, priors, variances):
         """Decode locations from predictions using priors to undo
         the encoding we did for offset regression at train time.
-        """        
+        """ 
         boxes = loc.copy()
-        boxes[:, 0:2] = priors[:, 0:2] + boxes[:, 0:2] * variances[0] * priors[:, 2:4]
+        boxes[:, 0:2] = priors[:, 0:2] + boxes[:, 0:2] * variances[0] * priors[:, 2:4]       
         boxes[:, 2:4] = priors[:, 2:4] * np.exp(boxes[:, 2:4] * variances[1])
+
+        # (cx, cy, w, h) -> (x, y, w, h)
         boxes[:, 0:2] -= boxes[:, 2:4] / 2
-        boxes[:, 2:4] += boxes[:, 0:2]
-        
+
+        # xywh -> xyXY
+        boxes[:, 2:4] += boxes[:, 0:2]       
         # landmarks
         if loc.shape[-1] > 4:
             boxes[:, 4::2] = priors[:, None, 0] + boxes[:, 4::2] * variances[0] * priors[:, None, 2]
@@ -681,10 +695,10 @@ def parse_args():
 
     parser.add_argument('model_file', help='onnx model file path')
     parser.add_argument('--eval', action='store_true', help='eval on widerface')
-    parser.add_argument('--mode', type=str, default='ORIGIN', help='img scale. (640, 640) for VGA, choice=[VGA, ORIGIN, "number,number"]')
-    parser.add_argument('--image', type=str, default='/home/ww/projects/yudet/data/widerface/WIDER_test/images/0--Parade/0_Parade_marchingband_1_9.jpg', help='image to detect')
-    parser.add_argument('--nms_thresh', type=float, default=0.35, help='tresh to nms')
-    parser.add_argument('--score_thresh', type=float, default=0.35, help='tresh to score filter')
+    parser.add_argument('--mode', type=str, default='640,640', help='img scale. (640, 640) for VGA, choice=[VGA, ORIGIN, "number,number"]')
+    parser.add_argument('--image', type=str, default=None, help='image to detect')
+    parser.add_argument('--nms_thresh', type=float, default=0.45, help='tresh to nms')
+    parser.add_argument('--score_thresh', type=float, default=0.3, help='tresh to score filter')
 
     args = parser.parse_args()
     return args
@@ -740,22 +754,26 @@ if __name__ == "__main__":
 
 
     else:
+        assert args.image is None
         img = cv2.imread(args.image)
         print(f'The origin shape is: {img.shape[:-1]}')
         warm_epochs = 10
         for _ in range(warm_epochs):        
             bboxes, kpss = detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)
         detector.time_engine.reset()
-        run_epochs = 10000
+        run_epochs = 500
+        t0 = time()
         for _ in range(run_epochs):        
             bboxes, kpss = detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)
+        t1 = time() - t0
         print(f'Warm up in {warm_epochs} epochs, test in {run_epochs} epochs:')
+        # detector.time_engine.set_mode('ms')
         for k, v in detector.time_engine.container.items():
             print(f'{k} : {v.total_second() / run_epochs}')
-        print(f'Total: {detector.time_engine.total_second() / run_epochs}')
-        print(f'FPS: {run_epochs / detector.time_engine.total_second()}')
+        print(f'Total: {detector.time_engine.total_second() / run_epochs} ({t1 / run_epochs})')
+        print(f'FPS: {run_epochs / detector.time_engine.total_second()} ({run_epochs / t1})')
 
-        draw(img, bboxes, kpss, out_path='./images/' + prefix + "_" + args.mode + osp.basename(args.image), with_kps=True)
+        draw(img, bboxes, kpss, out_path='./workspace/images/' + prefix + "_" + args.mode + osp.basename(args.image))
 
 
     
