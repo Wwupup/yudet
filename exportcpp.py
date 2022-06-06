@@ -9,7 +9,7 @@ parser.add_argument('-c', '--config', default='./config/yufacedet.yaml',
                     type=str, help='config path to open')
 parser.add_argument('-m', '--trained_model', default='./weights/yunet_final.pth',
                     type=str, help='Trained state_dict file path to open')
-parser.add_argument('-o', '--output', default='./facedetectcnn-data.cpp',
+parser.add_argument('-o', '--output', default='./weights_cpp/facedetectcnn-data.cpp',
                     type=str, help='The output cpp file, trained parameters inside')
 args = parser.parse_args()
 
@@ -61,3 +61,4 @@ if __name__ == '__main__':
     print('Finished loading model!')
     
     net.export_cpp(args.output)
+    print(f'Finish export cpp-data to {args.output}')
