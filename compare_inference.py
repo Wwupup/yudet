@@ -102,16 +102,17 @@ def resize_img(img, mode):
     return det_img, det_scale
 
 
-def draw(img, bboxes, kpss, out_path):
+def draw(img, bboxes, kpss, out_path, with_kps=True):
     for i in range(bboxes.shape[0]):
         bbox = bboxes[i]
         x1,y1,x2,y2,score = bbox.astype(np.int32)
-        cv2.rectangle(img, (x1,y1), (x2,y2), (255,0,0) , 2)
-        if kpss is not None:
-            kps = kpss[i].reshape(-1, 2)
-            for kp in kps:
-                kp = kp.astype(np.int32)
-                cv2.circle(img, tuple(kp) , 1, (0,0,255) , 2)
+        cv2.rectangle(img, (x1,y1), (x2,y2), (0,0,255) , 2)
+        if with_kps:
+            if kpss is not None:
+                kps = kpss[i].reshape(-1, 2)
+                for kp in kps:
+                    kp = kp.astype(np.int32)
+                    cv2.circle(img, tuple(kp) , 1, (255,0,0) , 2)
         
     print('output:', out_path)
     cv2.imwrite(out_path, img) 
@@ -556,7 +557,7 @@ class YOLO5FACE(Detector):
 
     def detect(self, img, score_thresh=0.5, mode="ORIGIN"):
         self.time_engine.tic('preprocess')
-        assert mode == 'VGA' or mode == "640,640"
+        # assert mode == 'VGA' or mode == "640,640"
         det_img, det_scale = resize_img(img, mode)
         self.time_engine.toc('preprocess')
         
@@ -740,11 +741,12 @@ if __name__ == "__main__":
 
     else:
         img = cv2.imread(args.image)
+        print(f'The origin shape is: {img.shape[:-1]}')
         warm_epochs = 10
         for _ in range(warm_epochs):        
             bboxes, kpss = detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)
         detector.time_engine.reset()
-        run_epochs = 500
+        run_epochs = 10000
         for _ in range(run_epochs):        
             bboxes, kpss = detector.detect(img, score_thresh=args.score_thresh, mode=args.mode)
         print(f'Warm up in {warm_epochs} epochs, test in {run_epochs} epochs:')
@@ -753,7 +755,7 @@ if __name__ == "__main__":
         print(f'Total: {detector.time_engine.total_second() / run_epochs}')
         print(f'FPS: {run_epochs / detector.time_engine.total_second()}')
 
-        draw(img, bboxes, kpss, out_path='./images/' + prefix + "_" + args.mode + osp.basename(args.image))
+        draw(img, bboxes, kpss, out_path='./images/' + prefix + "_" + args.mode + osp.basename(args.image), with_kps=True)
 
 
     

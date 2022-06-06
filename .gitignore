@@ -16,3 +16,4 @@ tools/coco_eval/cocoapi
 /train_mosaic.py
 /refmodels/*
 /inferencetest.ipynb
+/experiments
