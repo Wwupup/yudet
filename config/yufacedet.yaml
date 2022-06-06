@@ -5,8 +5,9 @@ model:
   activation_type: relu
   backbone:
     type: Yunet
+    layers: [[3, 16, 16], [16, 64], [64, 64], [64, 64], [64, 64], [64, 64], [64, 64]]
   head:
-    type: yuhead
+    type: Yuhead
     in_channels: [64, 64, 64, 64]
     num_classes: 2
     num_landmarks: 5

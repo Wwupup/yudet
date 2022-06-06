@@ -16,6 +16,7 @@ parser.add_argument('--config', '-c', default="/home/ww/projects/yudet/workspace
 parser.add_argument('--model', '-m', default="/home/ww/projects/yudet/workspace/facenvive/weights/best_rebuild.pth", type=str, help='model weights path')
 parser.add_argument('--dynamic', action='store_true', help='use dynamic axes export')
 parser.add_argument('--simplify', action='store_true', help='use onnx-simplifier to simplify onnx')
+parser.add_argument('--size', type=int, nargs='+', default=640, help='input size to export')
 
 def arg_initial(args):
     with open(args.config, mode='r', encoding='utf-8') as f:
@@ -32,7 +33,13 @@ def main():
     net.load_state_dict(torch.load(args.model), strict=True)
     net.eval()
 
-    input_shape = (1, 3, 640, 640)
+    if len(args.size) == 1:
+        input_size = (args.size[0], args.size[0])
+    elif len(args.size) == 2:
+        input_size = args.size
+    else:
+        raise ValueError(f'Input size should be 1 or 2 but get {len(args.size)} ({args.size})')
+    input_shape = (1, 3, *input_size)
     img = torch.randn(input_shape, requires_grad=False)
     input_names = ['input']
     output_names = ['loc', 'conf', 'iou']
@@ -46,7 +53,8 @@ def main():
 
 
     output_path = os.path.abspath(os.path.join('./workspace', 'onnx', f'yunet_{os.path.basename(args.model[:-4])}.onnx')) 
-
+    if not os.path.exists(os.path.dirname(output_path)):
+        os.makedirs(os.path.dirname(output_path))
 
     print(f'Export:\n{args.model}\nTo onnx:\n{output_path}')
     torch.onnx.export(
@@ -80,7 +88,7 @@ def main():
     ort_session = onnxruntime.InferenceSession(output_path)
     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(img)}
 
-    epoch = 1000
+    epoch = 50
 
     ort_t_1 = time.time()
     for i in range(epoch):

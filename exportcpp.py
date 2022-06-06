@@ -9,7 +9,7 @@ parser.add_argument('-c', '--config', default='./config/yufacedet.yaml',
                     type=str, help='config path to open')
 parser.add_argument('-m', '--trained_model', default='./weights/yunet_final.pth',
                     type=str, help='Trained state_dict file path to open')
-parser.add_argument('-o', '--output', default='./facedetectcnn-tfpn.cpp',
+parser.add_argument('-o', '--output', default='./facedetectcnn-data.cpp',
                     type=str, help='The output cpp file, trained parameters inside')
 args = parser.parse_args()
 

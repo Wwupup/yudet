@@ -6,15 +6,18 @@ from .layers import Conv_head, Conv4layerBlock
 
 
 class Yunet(nn.Module):
-    def __init__(self, activation_type='relu'):
+    def __init__(self, cfg_layers, activation_type='relu'):
         super().__init__()
-        self.model0 = Conv_head(3, 16, 16, activation_type=activation_type)
-        self.model1 = Conv4layerBlock(16, 64, activation_type=activation_type)
-        self.model2 = Conv4layerBlock(64, 64, activation_type=activation_type)
-        self.model3 = Conv4layerBlock(64, 64, activation_type=activation_type)
-        self.model4 = Conv4layerBlock(64, 64, activation_type=activation_type)
-        self.model5 = Conv4layerBlock(64, 64, activation_type=activation_type)
-        self.model6 = Conv4layerBlock(64, 64, activation_type=activation_type)
+
+        self.model0 = Conv_head(*cfg_layers[0], activation_type=activation_type)
+        for i in range(1, len(cfg_layers)):
+            self.add_module(f'model{i}', Conv4layerBlock(*cfg_layers[i], activation_type=activation_type))
+        # self.model1 = Conv4layerBlock(16, 64, activation_type=activation_type)
+        # self.model2 = Conv4layerBlock(64, 64, activation_type=activation_type)
+        # self.model3 = Conv4layerBlock(64, 64, activation_type=activation_type)
+        # self.model4 = Conv4layerBlock(64, 64, activation_type=activation_type)
+        # self.model5 = Conv4layerBlock(64, 64, activation_type=activation_type)
+        # self.model6 = Conv4layerBlock(64, 64, activation_type=activation_type)
         self.init_weights()
 
     def init_weights(self):
