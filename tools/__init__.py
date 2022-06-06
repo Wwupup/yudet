@@ -2,11 +2,6 @@ from .data import DaliWiderfaceDataset, WIDERFace, HanCotestloader, CCPDtestload
 from .log import Logger
 from .widerface_eval.evaluation import evaluation as widerface_evaluation
 
-try:
-    from .coco_eval.PythonAPI.pycocotools import COCO, COCOeval
-except ImportError:
-    print('The pycocotools API can not find, \nIf you are evaling, you should run ./tools/coco_eval/make_coco.sh.')
-
 import os
 import numpy as np
 import pickle
@@ -86,6 +81,10 @@ def eval_hanco(kargs: dict):
         pickle.dump(preds, f)
 
     print('COCO evaluation ...')
+    try:
+        from .coco_eval.PythonAPI.pycocotools import COCO, COCOeval
+    except ImportError:
+        print('The pycocotools API can not find, \nIf you are evaling, you should run ./tools/coco_eval/make_coco.sh.')
     gt_path = os.path.join(gt_root, 'detection_merge',f"{split}.json")
     coco_gt = COCO(gt_path)
     coco_dt = coco_gt.loadRes(results)

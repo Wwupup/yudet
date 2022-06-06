@@ -20,8 +20,13 @@ parser.add_argument('--confidence_threshold', type=float, help='confidence thres
 parser.add_argument('--device', type=str, default='cuda:0', help='cpu or cuda:0')
 
 def arg_initial(args):
-    workfolder = os.path.dirname(os.path.dirname(args.model))
-    if args.config is None:
+    if args.config is not None:
+        assert os.path.exists(args.config)
+        workfolder = os.path.join("./workspace", os.path.basename(args.config)[:-5])
+        if not os.path.exists(workfolder):
+            os.makedirs(workfolder)
+    else:
+        workfolder = os.path.dirname(os.path.dirname(args.model))
         cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
         assert len(cfg_list) == 1, 'Can`t comfire config file!'
         args.config = cfg_list[0]

@@ -16,8 +16,4 @@ tools/coco_eval/cocoapi
 /train_mosaic.py
 /refmodels/*
 /inferencetest.ipynb
-<<<<<<< HEAD
 /experiments
-=======
-/facedetectcnn-tfpn.cpp
->>>>>>> 14144c3fec138ec729442cdfdd082b010325a92a

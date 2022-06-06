@@ -22,16 +22,25 @@ parser.add_argument('--device', '-d', type=str, default='cuda:0', help='device t
 parser.add_argument('--multi-scale', action="store_true", help="multi-scale test")
 
 def arg_initial(args):
-    workfolder = os.path.dirname(os.path.dirname(args.model))
-    cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
-    assert len(cfg_list) == 1, 'Can`t comfire config file!'
-    with open(cfg_list[0], mode='r', encoding='utf-8') as f:
+    if args.config is not None:
+        assert os.path.exists(args.config)
+        workfolder = os.path.join("./workspace", os.path.basename(args.config)[:-5])
+        if not os.path.exists(workfolder):
+            os.makedirs(workfolder)
+    else:
+        workfolder = os.path.dirname(os.path.dirname(args.model))
+        cfg_list = glob.glob(os.path.join(workfolder, '*.yaml'))
+        assert len(cfg_list) == 1, 'Can`t comfire config file!'
+        args.config = cfg_list[0]
+    with open(args.config, mode='r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
     if args.confidence_threshold is not None:
         cfg['test']['confidence_threshold'] = args.confidence_threshold
 
     log_dir = os.path.join(workfolder, 'log')
+    if not os.path.exists(log_dir):
+        os.mkdir(log_dir)
     cfg['test']['log_dir'] = log_dir
     save_dir = os.path.join(workfolder, 'results')
     if not os.path.exists(save_dir):
