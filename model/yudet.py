@@ -145,17 +145,17 @@ class YuDetectNet(nn.Module):
         result_str += '#include "facedetectcnn.h" \n\n'
         
         DPConvs = []
-        DPConvs += [self.model0]
-        DPConvs += [self.model1.conv1, self.model1.conv2]
-        DPConvs += [self.model2.conv1, self.model2.conv2]
-        DPConvs += [self.model3.conv1, self.model3.conv2]
-        DPConvs += [self.model4.conv1, self.model4.conv2]
-        DPConvs += [self.model5.conv1, self.model5.conv2]
-        DPConvs += [self.model6.conv1, self.model6.conv2]
+        DPConvs += [self.backbone.model0]
+        DPConvs += [self.backbone.model1.conv1, self.backbone.model1.conv2]
+        DPConvs += [self.backbone.model2.conv1, self.backbone.model2.conv2]
+        DPConvs += [self.backbone.model3.conv1, self.backbone.model3.conv2]
+        DPConvs += [self.backbone.model4.conv1, self.backbone.model4.conv2]
+        DPConvs += [self.backbone.model5.conv1, self.backbone.model5.conv2]
+        DPConvs += [self.backbone.model6.conv1, self.backbone.model6.conv2]
         # for (l, c) in zip(self.loc, self.conf):
         #     DPConvs += [l.conv1, l.conv2]
         #     DPConvs += [c.conv1, c.conv2]
-        for layers in self.head:
+        for layers in self.head.head:
             DPConvs += [layers.conv1, layers.conv2]
 
         # convert to a string
